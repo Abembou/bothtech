@@ -1,0 +1,135 @@
+﻿@using bothtech.Shared.Models
+@using System.Globalization
+
+<article class="product-card @(IsOutOfStock ? "out-of-stock" : "")">
+    <div class="product-image-box">
+        @if (IsPromo)
+        {
+            <div class="promo-badge">PROMO</div>
+        }
+        else if (!string.IsNullOrEmpty(Product.Badge))
+        {
+            <div class="promo-badge" style="background: var(--purple);">@Product.Badge</div>
+        }
+
+        <img src="@MainImage" alt="@Product.Name">
+    </div>
+
+    <div class="product-info">
+        <h3 class="product-title">@Product.Name</h3>
+
+        @if (!string.IsNullOrWhiteSpace(Product.Specs))
+        {
+            <div class="product-specs">@Product.Specs</div>
+        }
+
+        <div class="product-rating-row">
+            <div class="stars-wrapper">
+                @((MarkupString)GetStarsHTML(Product.AverageRating))
+            </div>
+            <!-- Bouton cliquable pour ouvrir les avis -->
+            <button class="btn-rate-open" @onclick="ToggleReviews" style="background:none; border:none; color:var(--text-muted); font-size:0.8rem; cursor:pointer;">
+                @Product.RatingCount avis
+            </button>
+        </div>
+
+        @if (IsOutOfStock)
+        {
+            <div class="stock-out" style="color:var(--danger); font-size:0.8rem; font-weight:bold; margin-bottom:6px;">Rupture de stock</div>
+        }
+        else if (Product.Quantity <= 3)
+        {
+            <div class="stock-warning" style="color:var(--warning); font-size:0.8rem; font-weight:bold; margin-bottom:6px;">Plus que @Product.Quantity en stock !</div>
+        }
+        else
+        {
+            <div class="stock-in" style="color:var(--success); font-size:0.8rem; margin-bottom:6px;">En stock : @Product.Quantity</div>
+        }
+
+        <div class="product-price-row">
+            <div class="price-container">
+                @if (IsPromo)
+                {
+                    <span class="price-old">@FormatMoney(Product.OldPrice ?? 0)</span>
+                }
+
+                <span class="@(IsPromo ? "product-price price-promo" : "product-price")"
+                      style="@(HasB2bPrice ? "color:var(--purple); font-weight:900;" : "")">
+                    @FormatMoney(FinalPrice)
+                    @if (HasB2bPrice)
+                    {
+                        <small style="font-size:0.6rem; background:var(--purple); color:white; padding:2px 4px; border-radius:4px; margin-left:4px;">Gros</small>
+                    }
+                </span>
+            </div>
+
+            <button class="btn-add-cart" disabled="@IsOutOfStock" @onclick="TriggerAddToCart">
+                @(IsOutOfStock ? "Rupture" : "+ Ajouter")
+            </button>
+        </div>
+    </div>
+</article>
+
+<!-- Modale des avis (apparaît uniquement si _showReviews est vrai) -->
+@if (_showReviews)
+{
+    <div class="modal-overlay open" @onclick="ToggleReviews" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center;">
+        <div class="modal-card" @onclick:stopPropagation="true" style="background:white; padding:20px; border-radius:8px; width:90%; max-width:500px; color:black; max-height:80vh; display:flex; flex-direction:column;">
+            <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
+                <h3 style="margin:0; font-size:1.2rem;">Avis pour @Product.Name</h3>
+                <button @onclick="ToggleReviews" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--danger);">&times;</button>
+            </header>
+            <div style="overflow-y:auto; flex:1;">
+                <p style="color:var(--text-muted); text-align:center; padding:20px;">
+                    Aucun avis détaillé n'est disponible pour le moment.
+                </p>
+                <!-- Vous pourrez injecter les avis détaillés de Firebase ici plus tard -->
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Product Product { get; set; } = new();
+    [Parameter] public bool IsB2B { get; set; } = false;
+    [Parameter] public EventCallback<Product> OnAddToCart { get; set; }
+
+    // --- Gestion de la modale des avis ---
+    private bool _showReviews = false;
+    private void ToggleReviews() => _showReviews = !_showReviews;
+
+    // --- Logique métier ---
+    private bool IsOutOfStock => Product.Quantity <= 0;
+    private bool HasB2bPrice => IsB2B && Product.PartnerPrice.HasValue && Product.PartnerPrice > 0;
+    private int FinalPrice => HasB2bPrice ? Product.PartnerPrice.Value : Product.Price;
+    private bool IsPromo => Product.OldPrice.HasValue && Product.OldPrice > FinalPrice;
+
+    private string MainImage => string.IsNullOrWhiteSpace(Product.ImageUrl)
+        ? "_content/bothtech.Shared/images/default.jpg"
+        : Product.ImageUrl;
+
+    private string FormatMoney(int amount)
+    {
+        return amount.ToString("N0", CultureInfo.InvariantCulture).Replace(",", " ") + " FCFA";
+    }
+
+    private string GetStarsHTML(double rating)
+    {
+        int rounded = (int)Math.Round(rating);
+        string stars = "";
+        for (int i = 1; i <= 5; i++)
+        {
+            string starClass = i <= rounded ? "star-filled" : "star-empty";
+            stars += $"<span class=\"star-icon {starClass}\" style=\"color: #f59e0b;\">★</span>";
+        }
+        return stars;
+    }
+
+    private async Task TriggerAddToCart()
+    {
+        if (OnAddToCart.HasDelegate)
+        {
+            await OnAddToCart.InvokeAsync(Product);
+        }
+    }
+}

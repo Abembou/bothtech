@@ -1,0 +1,314 @@
+﻿@page "/admin/rh/conges"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using System.Globalization
+
+<PageTitle>Congés RH | Console Admin</PageTitle>
+
+<!-- ONGLETS RH -->
+<div class="rh-tabs" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+    <NavLink class="rh-tab-btn" href="/admin/rh/equipe" style="text-decoration:none;">Gestion de l'Équipe</NavLink>
+    <NavLink class="rh-tab-btn" href="/admin/rh" style="text-decoration:none;">Avances & Prêts</NavLink>
+    <NavLink class="rh-tab-btn" href="/admin/rh/paies" style="text-decoration:none;">Édition des Paies</NavLink>
+    <button class="rh-tab-btn active">Congés & Absences</button>
+</div>
+
+@if (!IsFormView)
+{
+    <!-- VUE 1 : LISTE DES CONGÉS -->
+    <section class="card">
+        <div class="card-header" style="display:flex; flex-direction:column; gap:10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <h2 class="card-title">Congés & Absences</h2>
+                <button class="btn btn-primary" style="font-weight: bold; background: var(--success); color: white; border: none;" @onclick="OpenNewLeaveForm">
+                    + Ajouter un congé
+                </button>
+            </div>
+            
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#f1f5f9; padding:10px; border-radius:6px; border:1px solid var(--border);">
+                <div style="display:flex; flex-direction:column;">
+                    <label style="font-size:0.7rem; font-weight:bold;">Date Début</label>
+                    <input type="date" class="form-control" style="padding:6px;" @bind="FilterStartDate">
+                </div>
+                <div style="display:flex; flex-direction:column;">
+                    <label style="font-size:0.7rem; font-weight:bold;">Date Fin</label>
+                    <input type="date" class="form-control" style="padding:6px;" @bind="FilterEndDate">
+                </div>
+                <div style="display:flex; flex-direction:column; flex:1; min-width: 150px;">
+                    <label style="font-size:0.7rem; font-weight:bold;">Agent</label>
+                    <select class="form-control" style="padding:6px;" @bind="FilterAgentId">
+                        <option value="ALL">Tous les agents</option>
+                        @foreach (var agent in _staffMembers)
+                        {
+                            <option value="@agent.FirebaseUid">@agent.Name</option>
+                        }
+                    </select>
+                </div>
+                <button class="btn btn-outline" style="padding:6px 12px; margin-top:14px; cursor:pointer;">🖨️ Imprimer</button>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="custom-table">
+                <thead>
+                    <tr>
+                        <th>Agent</th>
+                        <th class="hide-mobile">Période</th>
+                        <th class="hide-mobile">Type</th>
+                        <th style="text-align:right;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (IsLoading)
+                    {
+                        <tr><td colspan="4" style="text-align:center;">Chargement...</td></tr>
+                    }
+                    else if (!FilteredLeaves.Any())
+                    {
+                        <tr><td colspan="4" style="text-align:center;">Aucune absence dans cette période.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var leave in FilteredLeaves)
+                        {
+                            bool isStarted = leave.StartDate <= DateTime.Today;
+
+                            <tr>
+                                <td>
+                                    <b>@leave.AgentName</b><br>
+                                    @if (leave.Validated)
+                                    {
+                                        <span class="badge badge-success" style="margin-top:4px; display:inline-block; font-size:0.65rem;">✓ Validé</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-warning" style="margin-top:4px; display:inline-block; font-size:0.65rem;">⏳ En attente</span>
+                                    }
+                                </td>
+                                <td class="hide-mobile">
+                                    Du @leave.StartDate.ToString("dd/MM/yyyy") <br>Au @leave.EndDate.ToString("dd/MM/yyyy")
+                                </td>
+                                <td class="hide-mobile">
+                                    <span class="badge @GetTypeBadgeClass(leave.Type)">@GetTypeLabel(leave.Type)</span><br>
+                                    <small><em>@leave.Motif</em></small>
+                                </td>
+                                <td style="text-align:right;">
+                                    <AuthorizeView Roles="admin, maintenance">
+                                        <Authorized>
+                                            @if (!leave.Validated)
+                                            {
+                                                <button class="btn btn-outline" style="width:100%; margin-bottom:4px; color:var(--success); border-color:var(--success);" @onclick="() => ValidateLeave(leave)">Valider</button>
+                                            }
+                                        </Authorized>
+                                    </AuthorizeView>
+
+                                    @if (leave.Validated)
+                                    {
+                                        <span style="font-size:0.75rem; color:var(--text-muted);">Verrouillé (Validé)</span>
+                                    }
+                                    else if (isStarted)
+                                    {
+                                        <span style="font-size:0.75rem; color:var(--danger);">Verrouillé (Débuté)</span>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-outline" style="width:100%; color:var(--danger); border-color:var(--danger-subtle);" @onclick="() => DeleteLeave(leave)">Supprimer</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+else
+{
+    <!-- VUE 2 : FORMULAIRE DE CONGÉ -->
+    <section class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <h2 class="card-title">Nouvelle Déclaration</h2>
+            <button type="button" class="btn btn-outline" style="padding: 6px 12px;" @onclick="CloseForm">🔙 Retour à la liste</button>
+        </div>
+        <div class="card-body">
+            <EditForm Model="NewLeave" OnValidSubmit="SubmitLeave" style="max-width: 600px; margin: 0 auto;">
+                
+                <div class="form-group">
+                    <label>Agent *</label>
+                    <InputSelect @bind-Value="NewLeave.AgentId" class="form-control" required>
+                        <option value="">-- Choisir un agent --</option>
+                        @foreach (var agent in _staffMembers)
+                        {
+                            <option value="@agent.FirebaseUid">@agent.Name</option>
+                        }
+                    </InputSelect>
+                </div>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <div class="form-group">
+                        <label>Du (Début) *</label>
+                        <InputDate @bind-Value="NewLeave.StartDate" class="form-control" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Au (Fin) *</label>
+                        <InputDate @bind-Value="NewLeave.EndDate" class="form-control" required />
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Type d'absence *</label>
+                    <InputSelect @bind-Value="NewLeave.Type" class="form-control" required>
+                        <option value="conge_paye">Congé Payé</option>
+                        <option value="maladie_payee">Maladie (Justifiée)</option>
+                        <option value="absence_non_payee">Absence Non Payée (Déduite)</option>
+                    </InputSelect>
+                </div>
+                
+                <div class="form-group">
+                    <label>Motif / Commentaire</label>
+                    <InputText @bind-Value="NewLeave.Motif" class="form-control" placeholder="Détaillez la raison si nécessaire..." />
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width:100%; padding: 12px; font-size: 1.05rem;">Enregistrer la déclaration</button>
+            </EditForm>
+        </div>
+    </section>
+}
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div id="toast" style="display:block;">@ToastMessage</div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private bool IsFormView = false;
+    private string ToastMessage = "";
+
+    // Filtres
+    private string FilterAgentId = "ALL";
+    private DateTime? FilterStartDate;
+    private DateTime? FilterEndDate;
+
+    // Modèle spécifique aux congés
+    public class Leave
+    {
+        public string FirebaseId { get; set; }
+        public string AgentId { get; set; }
+        public string AgentName { get; set; }
+        public DateTime StartDate { get; set; } = DateTime.Today;
+        public DateTime EndDate { get; set; } = DateTime.Today.AddDays(1);
+        public string Type { get; set; } = "conge_paye";
+        public string Motif { get; set; }
+        public bool Validated { get; set; }
+        public long CreatedAt { get; set; }
+    }
+
+    private List<User> _staffMembers = new();
+    private List<Leave> _allLeaves = new();
+    private Leave NewLeave = new();
+
+    // Filtrage LINQ en temps réel
+    private IEnumerable<Leave> FilteredLeaves => _allLeaves
+        .Where(l => FilterAgentId == "ALL" || l.AgentId == FilterAgentId)
+        .Where(l => !FilterStartDate.HasValue || l.StartDate >= FilterStartDate.Value)
+        .Where(l => !FilterEndDate.HasValue || l.EndDate <= FilterEndDate.Value)
+        .OrderByDescending(l => l.CreatedAt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.Delay(300); // Simulation
+
+        _staffMembers = new List<User>
+        {
+            new User { FirebaseUid = "U1", Name = "KABORE Alain" },
+            new User { FirebaseUid = "U2", Name = "OUEDRAOGO Sophie" }
+        };
+
+        _allLeaves = new List<Leave>
+        {
+            new Leave { 
+                FirebaseId = "-Pconge1", 
+                AgentId = "U1", 
+                AgentName = "KABORE Alain", 
+                StartDate = DateTime.Today.AddDays(-2), 
+                EndDate = DateTime.Today.AddDays(2), 
+                Type = "maladie_payee", 
+                Motif = "Paludisme", 
+                Validated = false,
+                CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }
+        };
+
+        IsLoading = false;
+    }
+
+    private void OpenNewLeaveForm()
+    {
+        NewLeave = new Leave();
+        IsFormView = true;
+    }
+
+    private void CloseForm()
+    {
+        IsFormView = false;
+    }
+
+    private async Task SubmitLeave()
+    {
+        if (NewLeave.EndDate < NewLeave.StartDate)
+        {
+            await ShowToast("❌ Date de fin invalide.");
+            return;
+        }
+
+        var agent = _staffMembers.FirstOrDefault(a => a.FirebaseUid == NewLeave.AgentId);
+        if (agent != null)
+        {
+            NewLeave.AgentName = agent.Name;
+            NewLeave.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            
+            // Simulation d'enregistrement
+            _allLeaves.Add(NewLeave);
+            
+            await ShowToast("✅ Absence enregistrée !");
+            IsFormView = false;
+        }
+    }
+
+    private async Task ValidateLeave(Leave leave)
+    {
+        leave.Validated = true;
+        await ShowToast("✅ Absence validée.");
+    }
+
+    private async Task DeleteLeave(Leave leave)
+    {
+        _allLeaves.Remove(leave);
+        await ShowToast("🗑️ Supprimée avec succès.");
+    }
+
+    private string GetTypeLabel(string type) => type switch
+    {
+        "maladie_payee" => "Maladie",
+        "absence_non_payee" => "Non Payée",
+        _ => "Congé Payé"
+    };
+
+    private string GetTypeBadgeClass(string type) => type switch
+    {
+        "maladie_payee" => "badge-warning",
+        "absence_non_payee" => "badge-danger",
+        _ => "badge-success"
+    };
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}

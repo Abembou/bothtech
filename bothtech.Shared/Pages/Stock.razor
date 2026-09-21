@@ -1,0 +1,301 @@
+﻿@page "/admin/stock"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using System.Globalization
+
+<PageTitle>Stocks | Console Admin</PageTitle>
+
+@if (!IsFormView)
+{
+    <!-- VUE 1 : KPI ET LISTE -->
+    <section class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-label">Stock Restant</div><div class="kpi-value">@TotalRemainingStock pcs</div></div>
+        <div class="kpi-card"><div class="kpi-label">Qté Vendue</div><div class="kpi-value" style="color: var(--purple);">@TotalSoldQty pcs</div></div>
+        <div class="kpi-card"><div class="kpi-label">Écoulement</div><div class="kpi-value" style="color: var(--success);">@AmortizationRate %</div></div>
+        <div class="kpi-card"><div class="kpi-label">C.A Réalisé</div><div class="kpi-value" style="color: var(--primary);">@FormatMoney(TotalRevenue)</div></div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2 class="card-title hide-mobile">Inventaire des articles</h2>
+            <div style="display:flex; flex-direction: column; width: 100%; max-width: 400px; margin-left: auto;">
+                <input type="search" placeholder="Rechercher un article..." class="form-control" @bind="SearchFilter" @bind:event="oninput">
+                
+                <!-- Sécurité Blazor : Seuls les admins voient ce bouton -->
+                <AuthorizeView Roles="admin, maintenance">
+                    <Authorized>
+                        <button class="btn btn-primary" style="background: var(--success); color: white; border: none; font-weight: bold; margin-top: 10px;" @onclick="OpenNewProductForm">+ Nouvel Article</button>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="custom-table">
+                <thead>
+                    <tr>
+                        <th>Article</th>
+                        <th class="hide-mobile">Prix & Conditions</th>
+                        <th class="hide-mobile">Stock Restant</th>
+                        <th class="hide-mobile">Vendus</th>
+                        <th class="hide-mobile">Écoulement</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (IsLoading)
+                    {
+                        <tr><td colspan="6" style="text-align: center; padding: 20px;">Chargement...</td></tr>
+                    }
+                    else if (!FilteredProducts.Any())
+                    {
+                        <tr><td colspan="6" style="text-align: center; padding:20px; color:var(--text-muted);">Aucun produit correspondant.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var p in FilteredProducts)
+                        {
+                            int rate = (p.Quantity + p.SoldQuantity) > 0 ? (int)Math.Round((double)p.SoldQuantity / (p.Quantity + p.SoldQuantity) * 100) : 0;
+                            
+                            <tr>
+                                <td>
+                                    <div class="prod-cell">
+                                        <img src="@(string.IsNullOrEmpty(p.ImageUrl) ? "../../images/default.jpg" : p.ImageUrl)" class="prod-thumb">
+                                        <div style="flex:1;">
+                                            <b style="font-size:0.95rem; color:var(--text-main);">@p.Name</b><br>
+                                            <small style="color:var(--text-muted);">@p.Category</small><br>
+                                            @if (p.Validated)
+                                            {
+                                                <span class="badge badge-success" style="margin-top:4px; display:inline-block;">✓ Validé</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge badge-warning" style="margin-top:4px; display:inline-block;">⏳ Non Validé</span>
+                                            }
+                                            
+                                            <!-- Affichage Mobile -->
+                                            <div class="mobile-only-display" style="margin-top:8px; font-size:0.85rem; line-height: 1.5; border-top:1px dashed var(--border); padding-top:8px;">
+                                                <strong style="color:var(--primary); font-size:1rem;">@FormatMoney(p.Price)</strong><br>
+                                                <div style="display:flex; justify-content:space-between; margin-top:4px;">
+                                                    <span>Stock: <span class="badge @(p.Quantity == 0 ? "badge-danger" : "badge-success")">@p.Quantity</span></span>
+                                                    <span>Vendus: <span class="badge badge-purple">@p.SoldQuantity</span></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="hide-mobile">
+                                    <strong>@FormatMoney(p.Price)</strong><br>
+                                    <span style="font-size:0.75rem; color:var(--text-muted);">PR: @FormatMoney(p.CostPrice ?? 0) | R.Max: @FormatMoney(p.MaxDiscount ?? 0)</span><br>
+                                    @if (p.PartnerPrice > 0)
+                                    {
+                                        <span class="badge badge-warning" style="margin-top:4px; display:inline-block;">Partenaire: @FormatMoney(p.PartnerPrice.Value)</span>
+                                    }
+                                </td>
+                                <td class="hide-mobile"><span class="badge @(p.Quantity == 0 ? "badge-danger" : "badge-success")">@p.Quantity</span></td>
+                                <td class="hide-mobile"><span class="badge badge-purple">@p.SoldQuantity</span></td>
+                                <td class="hide-mobile"><div style="font-size:0.85rem;font-weight:bold;">@rate%</div></td>
+                                <td style="text-align: right; vertical-align: top;">
+                                    <div class="action-buttons-container">
+                                        <AuthorizeView Roles="admin, maintenance">
+                                            <Authorized>
+                                                <button class="btn btn-outline btn-action" @onclick="() => EditProduct(p)">Éditer</button>
+                                                @if (!p.Validated)
+                                                {
+                                                    <button class="btn btn-outline btn-action" style="color:var(--success); border-color:var(--success);" @onclick="() => ValidateStock(p)">Valider Stock</button>
+                                                }
+                                                @if (p.SoldQuantity == 0 && !p.Validated)
+                                                {
+                                                    <button class="btn btn-outline btn-action" style="color:var(--danger); border-color:var(--danger-subtle);" @onclick="() => DeleteStock(p)">Supprimer</button>
+                                                }
+                                            </Authorized>
+                                            <NotAuthorized>
+                                                <span class="badge badge-warning">Lecture Seule</span>
+                                            </NotAuthorized>
+                                        </AuthorizeView>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+else
+{
+    <!-- VUE 2 : FORMULAIRE ARTICLE -->
+    <section class="card" style="max-width: 900px; margin: 0 auto;">
+        <div class="card-header" style="display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
+            <h2 class="card-title" style="margin:0;">@(string.IsNullOrEmpty(EditingProduct.Name) ? "Nouvel Article" : "Modifier l'Article")</h2>
+            <button type="button" class="btn btn-outline" style="cursor: pointer; width:auto; padding: 8px 12px; margin:0;" @onclick="CloseForm">🔙 Retour</button>
+        </div>
+        <div class="card-body">
+            <EditForm Model="EditingProduct" OnValidSubmit="SaveProductAsync">
+                
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label>Nom article *</label>
+                    <InputText @bind-Value="EditingProduct.Name" class="form-control" required />
+                </div>
+                
+                <div class="form-grid grid-2">
+                    <div class="form-group">
+                        <label>Marque *</label>
+                        <InputText @bind-Value="EditingProduct.Brand" class="form-control" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Catégorie *</label>
+                        <InputSelect @bind-Value="EditingProduct.Category" class="form-control" required>
+                            <option value="laptops">PC</option>
+                            <option value="smartphones">Smartphones</option>
+                            <option value="tablets">Tablettes</option>
+                            <option value="accessories">Accessoires</option>
+                        </InputSelect>
+                    </div>
+                </div>
+                
+                <div class="form-panel" style="margin-top:15px;">
+                    <div class="form-group">
+                        <label>Stock (Entrée) *</label>
+                        <InputNumber @bind-Value="EditingProduct.Quantity" class="form-control" min="0" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Vendus (Auto)</label>
+                        <InputNumber @bind-Value="EditingProduct.SoldQuantity" class="form-control" disabled />
+                    </div>
+                </div>
+                
+                <div class="form-grid grid-2" style="margin-top:15px;">
+                    <div class="form-group">
+                        <label>Prix de Vente Public (FCFA) *</label>
+                        <InputNumber @bind-Value="EditingProduct.Price" class="form-control" min="0" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Image (Fichier)</label>
+                        <!-- Blazor InputFile gère nativement l'upload en C# -->
+                        <InputFile OnChange="HandleImageUpload" class="form-control" accept="image/*" />
+                    </div>
+                </div>
+
+                <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin: 20px 0; padding: 15px; background: white; border-radius:6px; border:1px solid var(--border);">
+                    <InputCheckbox @bind-Value="EditingProduct.Active" id="pActive" style="width:20px; height:20px;" />
+                    <label for="pActive" style="margin-bottom: 0; cursor:pointer; font-weight:bold; font-size:1rem;">Visible sur le site</label>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="background: var(--primary); font-weight:bold;">Enregistrer l'Article</button>
+            </EditForm>
+        </div>
+    </section>
+}
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div id="toast" style="display:block;">@ToastMessage</div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private bool IsFormView = false;
+    private List<Product> _allProducts = new();
+    private Product EditingProduct = new();
+    private string SearchFilter = "";
+    private string ToastMessage = "";
+
+    // --- KPIs calculés automatiquement (LINQ) ---
+    private int TotalRemainingStock => _allProducts.Sum(p => p.Quantity);
+    private int TotalSoldQty => _allProducts.Sum(p => p.SoldQuantity);
+    private int AmortizationRate => (TotalRemainingStock + TotalSoldQty) > 0 ? (int)Math.Round((double)TotalSoldQty / (TotalRemainingStock + TotalSoldQty) * 100) : 0;
+    private int TotalRevenue => _allProducts.Sum(p => p.SoldQuantity * p.Price);
+
+    // --- Filtre de recherche ---
+    private IEnumerable<Product> FilteredProducts => _allProducts
+        .Where(p => string.IsNullOrWhiteSpace(SearchFilter) || p.Name.Contains(SearchFilter, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.Delay(500); // Simulation chargement réseau
+        
+        // Données fictives initialisées avec un Guid au format texte
+        _allProducts = new List<Product>
+        {
+            new Product { Id = Guid.NewGuid().ToString(), Name = "Dell Latitude 5400", Brand = "Dell", Category = "laptops", Quantity = 56, SoldQuantity = 54, Price = 195000, Validated = true, Active = true }
+        };
+        IsLoading = false;
+    }
+
+    // --- Navigation ---
+    private void OpenNewProductForm()
+    {
+        EditingProduct = new Product { Active = true };
+        IsFormView = true;
+    }
+
+    private void EditProduct(Product product)
+    {
+        // On clone le produit pour ne pas modifier la liste en temps réel avant la sauvegarde
+        EditingProduct = new Product
+        {
+            Id = product.Id, // L'identifiant unique en texte
+            Name = product.Name,
+            Brand = product.Brand,
+            Category = product.Category,
+            Price = product.Price,
+            Quantity = product.Quantity,
+            SoldQuantity = product.SoldQuantity,
+            Active = product.Active,
+            Validated = product.Validated
+        };
+        IsFormView = true;
+    }
+
+    private void CloseForm()
+    {
+        IsFormView = false;
+    }
+
+    // --- Actions ---
+    private async Task SaveProductAsync()
+    {
+        // Logique de sauvegarde BDD ici...
+        await ShowToast("✅ Article enregistré !");
+        IsFormView = false;
+    }
+
+    private async Task ValidateStock(Product p)
+    {
+        p.Validated = true;
+        await ShowToast("✅ Stock validé !");
+    }
+
+    private async Task DeleteStock(Product p)
+    {
+        _allProducts.Remove(p);
+        await ShowToast("🗑️ Article supprimé.");
+    }
+
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        // Blazor gère les fichiers ici. On peut les convertir en Base64 ou les uploader via API.
+        var format = "image/jpeg";
+        var resizedImageFile = await e.File.RequestImageFileAsync(format, 600, 1200);
+        var buffer = new byte[resizedImageFile.Size];
+        await resizedImageFile.OpenReadStream().ReadAsync(buffer);
+        EditingProduct.ImageUrl = $"data:{format};base64,{Convert.ToBase64String(buffer)}";
+    }
+
+    private string FormatMoney(int amount)
+    {
+        var nfi = (NumberFormatInfo)CultureInfo.GetCultureInfo("fr-FR").NumberFormat.Clone();
+        nfi.NumberGroupSeparator = " ";
+        return amount.ToString("N0", nfi) + " FCFA";
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}

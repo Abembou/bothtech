@@ -1,0 +1,23 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <base href="/" />
+
+        <!-- ON NE GARDE QUE LE CSS DE LA BOUTIQUE -->
+        <link rel="stylesheet" href="_content/bothtech.Shared/css/main.css" />
+
+        <!-- CSS généré automatiquement par Blazor -->
+        <link rel="stylesheet" href="bothtech.Web.styles.css" />
+        <link rel="icon" type="image/png" href="_content/bothtech.Shared/favicon.png" />
+        <HeadOutlet @rendermode="InteractiveServer" />
+    </head>
+<body>
+    <!-- ⚠️ UN SEUL ROUTEUR : Celui de bothtech.Shared -->
+    <bothtech.Shared.Routes @rendermode="InteractiveServer" />
+
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

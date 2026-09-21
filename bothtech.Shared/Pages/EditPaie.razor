@@ -1,0 +1,276 @@
+﻿@page "/admin/rh/paies"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using System.Globalization
+
+<PageTitle>Paies RH | Console Admin</PageTitle>
+
+<!-- ONGLETS RH -->
+<div class="rh-tabs" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+    <NavLink class="rh-tab-btn" href="/admin/rh/equipe" style="text-decoration:none;">Gestion de l'Équipe</NavLink>
+    <NavLink class="rh-tab-btn" href="/admin/rh" style="text-decoration:none;">Avances & Prêts</NavLink>
+    <button class="rh-tab-btn active">Édition des Paies</button>
+    <NavLink class="rh-tab-btn" href="/admin/rh/conges" style="text-decoration:none;">Congés & Absences</NavLink>
+</div>
+
+<section class="card">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <h2 class="card-title">Calcul des Paies</h2>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <label style="font-size:0.8rem; font-weight:bold;">Mois de Paie :</label>
+
+            <!-- CORRECTION : Remplacement de @bind par value et @onchange -->
+            <input type="month" value="@SelectedMonth" @onchange='e => { SelectedMonth = e.Value?.ToString() ?? ""; }' class="form-control" style="max-width: 200px;">
+
+            <button class="btn btn-primary" style="background:var(--primary); color:white; border:none; font-weight:bold; cursor:pointer;" @onclick="CalculatePayroll">
+                Calculer
+            </button>
+        </div>
+    </div>
+
+    @if (PayrollCalculated)
+    {
+        <div style="background:#f8fafc; padding:15px; border-radius:8px; border:1px solid var(--border); margin-bottom:15px;">
+            <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px;">Ajouter un Ajustement pour ce mois (@SelectedMonth)</h3>
+            <EditForm Model="NewAdjustment" OnValidSubmit="SaveAdjustment" style="display:grid; grid-template-columns:1fr 1fr 1.5fr 2fr auto; gap:10px; align-items:end;">
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:0.7rem;">Agent *</label>
+                    <InputSelect @bind-Value="NewAdjustment.AgentId" class="form-control" required>
+                        <option value="">-- Choisir --</option>
+                        @foreach (var agent in _staffMembers)
+                        {
+                            <option value="@agent.FirebaseUid">@agent.Name</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:0.7rem;">Type *</label>
+                    <InputSelect @bind-Value="NewAdjustment.Type" class="form-control" required>
+                        <option value="prime">Prime (+)</option>
+                        <option value="penalite">Pénalité (-)</option>
+                    </InputSelect>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:0.7rem;">Montant *</label>
+                    <InputNumber @bind-Value="NewAdjustment.Montant" class="form-control" min="1" required />
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label style="font-size:0.7rem;">Motif *</label>
+                    <InputText @bind-Value="NewAdjustment.Motif" class="form-control" required />
+                </div>
+                <button type="submit" class="btn btn-success" style="cursor:pointer; padding:12px;">Ajouter</button>
+            </EditForm>
+        </div>
+    }
+
+    <div class="table-responsive">
+        <table class="custom-table">
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th class="hide-mobile">Salaire Base & Indemnités</th>
+                    <th class="hide-mobile">Ajustements & Retenues légales</th>
+                    <th class="hide-mobile">Net à Payer</th>
+                    <th style="text-align:right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!PayrollCalculated)
+                {
+                    <tr><td colspan="5" style="text-align:center; padding: 20px;">Sélectionnez un mois et cliquez sur Calculer</td></tr>
+                }
+                else if (!CalculatedRecords.Any())
+                {
+                    <tr><td colspan="5" style="text-align:center; padding: 20px;">Aucun agent à payer pour ce mois.</td></tr>
+                }
+                else
+                {
+                    @foreach (var record in CalculatedRecords)
+                    {
+                        <tr>
+                            <td>
+                                <b>@record.Employee.Name</b>
+                                <!-- Affichage Mobile condensé -->
+                                <div style="display:block; margin-top:5px; padding-top:5px; border-top:1px dashed #ccc;" class="mobile-only-display">
+                                    <b>Mois: @SelectedMonth</b><br>
+                                    <b style="color:var(--primary); font-size:1.1rem;">Net: @FormatMoney(record.NetAPayer)</b>
+                                </div>
+                            </td>
+                            <td class="hide-mobile">
+                                <b>Base: @FormatMoney(record.Employee.BaseSalary)</b>
+                            </td>
+                            <td class="hide-mobile">
+                                @if (record.TotalPrimes > 0)
+                                {
+                                    <div style="color:var(--success);">+ Primes: @FormatMoney(record.TotalPrimes)</div>
+                                }
+                                @if (record.TotalPenalites > 0)
+                                {
+                                    <div style="color:var(--danger);">- Pén.: @FormatMoney(record.TotalPenalites)</div>
+                                }
+                                @if (record.DeductionPret > 0)
+                                {
+                                    <div style="color:#d97706;">- Avance: @FormatMoney(record.DeductionPret)</div>
+                                }
+                                @if (record.DeductionAbsence > 0)
+                                {
+                                    <div style="color:var(--danger);">- Abs: @FormatMoney(record.DeductionAbsence)</div>
+                                }
+                            </td>
+                            <td class="hide-mobile">
+                                <b style="font-size:1.1rem; color:var(--primary);">@FormatMoney(record.NetAPayer)</b>
+                            </td>
+                            <td style="text-align:right;">
+                                <button class="btn btn-outline" style="padding:6px 12px; font-size:0.8rem; width:100%; margin-bottom:4px;">🖨️ Fiche de Paie</button>
+                                <button class="btn btn-success" @onclick="() => PaySalary(record)" style="padding:6px 12px; font-size:0.8rem; width:100%;">💳 Payer & Clôturer</button>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div id="toast" style="display:block;">@ToastMessage</div>
+}
+
+@code {
+    private string SelectedMonth = DateTime.Now.ToString("yyyy-MM");
+    private bool PayrollCalculated = false;
+    private string ToastMessage = "";
+
+    // Modèles pour cette vue
+    private List<User> _staffMembers = new();
+    private List<Loan> _activeLoans = new();
+    private List<Adjustment> _adjustments = new();
+
+    public class Adjustment
+    {
+        public string AgentId { get; set; }
+        public string Type { get; set; } = "prime";
+        public int Montant { get; set; }
+        public string Motif { get; set; }
+        public string Mois { get; set; }
+    }
+
+    // Le résultat du calcul pour un agent
+    public class PayrollRecord
+    {
+        public User Employee { get; set; }
+        public int Brut { get; set; }
+        public int TotalPrimes { get; set; }
+        public int TotalPenalites { get; set; }
+        public int DeductionPret { get; set; }
+        public int DeductionAbsence { get; set; }
+        public int Iuts { get; set; }
+        public int Cnss { get; set; }
+        public int NetAPayer => Math.Max(0, Brut + TotalPrimes - TotalPenalites - DeductionPret - DeductionAbsence - Iuts - Cnss);
+    }
+
+    private Adjustment NewAdjustment = new();
+    private List<PayrollRecord> CalculatedRecords = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.Delay(300); // Simulation
+
+        _staffMembers = new List<User>
+        {
+            new User { FirebaseUid = "U1", Name = "KABORE Alain", BaseSalary = 150000, Active = true }
+        };
+
+        _activeLoans = new List<Loan>
+        {
+            new Loan { AgentId = "U1", MontantRestant = 100000, ValeurRetenue = 50000 }
+        };
+    }
+
+    private void CalculatePayroll()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedMonth)) return;
+
+        CalculatedRecords.Clear();
+
+        foreach (var agent in _staffMembers.Where(s => s.Active))
+        {
+            var record = new PayrollRecord
+            {
+                Employee = agent,
+                // Dans le vrai modèle, rajoutez Indemnite et AllocFamiliale
+                Brut = agent.BaseSalary,
+                // Simulation de pourcentages IUTS/CNSS
+                Iuts = (int)(agent.BaseSalary * 0.0),
+                Cnss = (int)(agent.BaseSalary * 0.055)
+            };
+
+            // Calcul des ajustements du mois sélectionné
+            var monthlyAdj = _adjustments.Where(a => a.AgentId == agent.FirebaseUid && a.Mois == SelectedMonth);
+            record.TotalPrimes = monthlyAdj.Where(a => a.Type == "prime").Sum(a => a.Montant);
+            record.TotalPenalites = monthlyAdj.Where(a => a.Type == "penalite").Sum(a => a.Montant);
+
+            // Calcul des retenues de prêt
+            var agentLoan = _activeLoans.FirstOrDefault(l => l.AgentId == agent.FirebaseUid && l.MontantRestant > 0);
+            if (agentLoan != null)
+            {
+                record.DeductionPret = (int)Math.Min(agentLoan.ValeurRetenue, agentLoan.MontantRestant);
+            }
+
+            CalculatedRecords.Add(record);
+        }
+
+        NewAdjustment.Mois = SelectedMonth; // Prépare le formulaire d'ajustement
+        PayrollCalculated = true;
+    }
+
+    private async Task SaveAdjustment()
+    {
+        _adjustments.Add(new Adjustment
+        {
+            AgentId = NewAdjustment.AgentId,
+            Type = NewAdjustment.Type,
+            Montant = NewAdjustment.Montant,
+            Motif = NewAdjustment.Motif,
+            Mois = SelectedMonth
+        });
+
+        await ShowToast("Ajustement ajouté !");
+
+        // On réinitialise le formulaire
+        NewAdjustment = new Adjustment { Mois = SelectedMonth };
+
+        // On relance le calcul pour mettre à jour le tableau instantanément
+        CalculatePayroll();
+    }
+
+    private async Task PaySalary(PayrollRecord record)
+    {
+        // Logique de paiement (Création de la Dépense et déduction du prêt)
+        var agentLoan = _activeLoans.FirstOrDefault(l => l.AgentId == record.Employee.FirebaseUid && l.MontantRestant > 0);
+        if (agentLoan != null && record.DeductionPret > 0)
+        {
+            agentLoan.MontantRestant -= record.DeductionPret;
+        }
+
+        await ShowToast($"✅ Salaire de {record.Employee.Name} payé !");
+        CalculatePayroll(); // Rafraîchit les retenues
+    }
+
+    private string FormatMoney(int amount)
+    {
+        var nfi = (NumberFormatInfo)CultureInfo.GetCultureInfo("fr-FR").NumberFormat.Clone();
+        nfi.NumberGroupSeparator = " ";
+        return amount.ToString("N0", nfi) + " FCFA";
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}

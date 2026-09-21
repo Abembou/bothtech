@@ -1,0 +1,136 @@
+﻿@page "/admin/livraisons"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+
+<PageTitle>Livraisons | Console Admin</PageTitle>
+
+<section class="card">
+    <div class="card-header">
+        <h2 class="card-title">Colis à expédier</h2>
+    </div>
+    <div class="table-responsive" style="max-height: 700px; overflow-y: auto;">
+        <table class="custom-table">
+            <thead>
+                <tr>
+                    <th>Date & Réf</th>
+                    <th>Client / Destinataire</th>
+                    <th class="hide-mobile">Adresse & Tél</th>
+                    <th class="hide-mobile">Articles</th>
+                    <th style="text-align: right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (IsLoading)
+                {
+                    <tr><td colspan="5" style="text-align:center;">Chargement...</td></tr>
+                }
+                else if (!PendingDeliveries.Any())
+                {
+                    <tr><td colspan="5" style="text-align:center; padding:30px; color:var(--success); font-weight:bold;">Aucun colis en attente de livraison. Beau travail !</td></tr>
+                }
+                else
+                {
+                    @foreach (var order in PendingDeliveries)
+                    {
+                        <tr>
+                            <td>
+                                <b>#@order.FirebaseId?.Substring(0, 6).ToUpper()</b><br>
+                                <small>@FormatDate(order.CreatedAt)</small>
+                            </td>
+                            <td>
+                                <b>@(string.IsNullOrWhiteSpace(order.RecipientName) ? order.ClientName : order.RecipientName)</b>
+                                <div class="mobile-only-display" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-size:0.85rem; line-height:1.5;">
+                                    📍 @(string.IsNullOrWhiteSpace(order.RecipientAddress) ? order.ClientAddress : order.RecipientAddress)<br>
+                                    📞 @(string.IsNullOrWhiteSpace(order.RecipientPhone) ? order.ClientPhone : order.RecipientPhone)<br>
+                                    <span style="color:var(--text-muted); display:inline-block; margin-top:4px;">
+                                        @((MarkupString)GetItemsHtml(order.Items))
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="hide-mobile">
+                                📍 @(string.IsNullOrWhiteSpace(order.RecipientAddress) ? order.ClientAddress : order.RecipientAddress)<br>
+                                📞 @(string.IsNullOrWhiteSpace(order.RecipientPhone) ? order.ClientPhone : order.RecipientPhone)
+                            </td>
+                            <td class="hide-mobile">
+                                <small>@((MarkupString)GetItemsHtml(order.Items))</small>
+                            </td>
+                            <td style="text-align:right;">
+                                <button class="btn btn-success" @onclick="() => MarkAsDelivered(order)" style="background:#10b981; color:white; border:none; padding:10px 15px; border-radius:8px; font-weight:bold; cursor:pointer;">
+                                    ✅ Livré
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div id="toast" style="display:block;">@ToastMessage</div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private List<Order> _allOrders = new();
+    private string ToastMessage = "";
+
+    // Filtre natif en C# : on ne garde que les commandes validées
+    private IEnumerable<Order> PendingDeliveries => _allOrders
+        .Where(o => o.Status == "validee")
+        .OrderByDescending(o => o.CreatedAt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Simulation d'un appel base de données
+        await Task.Delay(500);
+
+        // Données fictives pour visualiser le design
+        _allOrders = new List<Order>
+        {
+            new Order
+            {
+                FirebaseId = "-P2aBcDeFgHiJ",
+                Status = "validee",
+                CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ClientName = "Abdoulaye",
+                ClientPhone = "70123456",
+                ClientAddress = "Ouagadougou, Zone 1",
+                Items = new List<OrderItem> { new OrderItem { ProductName = "HP ProBook 645", Quantity = 1 } }
+            }
+        };
+
+        IsLoading = false;
+    }
+
+    private async Task MarkAsDelivered(Order order)
+    {
+        // Plus tard, nous appellerons FirebaseService ou DbService ici :
+        // await DbService.UpdateOrderStatusAsync(order.Id, "livree");
+
+        order.Status = "livree"; // Retire instantanément la ligne de la vue grâce au Data Binding
+        await ShowToast("✅ Colis marqué comme livré !");
+    }
+
+    private string FormatDate(long timestamp)
+    {
+        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+    }
+
+    private string GetItemsHtml(List<OrderItem> items)
+    {
+        if (items == null || !items.Any()) return "";
+        return string.Join("<br>", items.Select(i => $"• {i.Quantity}x {i.ProductName}"));
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}

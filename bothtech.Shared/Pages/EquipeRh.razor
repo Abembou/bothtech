@@ -1,0 +1,275 @@
+﻿@page "/admin/rh/equipe"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using System.Globalization
+
+<PageTitle>Gestion de l'Équipe | Console Admin</PageTitle>
+
+<!-- ONGLETS RH -->
+<div class="rh-tabs" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+    <button class="rh-tab-btn active">Gestion de l'Équipe</button>
+    <NavLink class="rh-tab-btn" href="/admin/rh" style="text-decoration:none;">Avances & Prêts</NavLink>
+    <button class="rh-tab-btn">Édition des Paies</button>
+    <button class="rh-tab-btn">Congés & Absences</button>
+</div>
+
+@if (!IsFormView)
+{
+    <!-- VUE 1 : LISTE DE L'ÉQUIPE -->
+    <section class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <h2 class="card-title hide-mobile">Membres de l'Équipe</h2>
+            <div style="display:flex; gap:10px; align-items:center; flex: 1; justify-content: flex-end;">
+                <input type="search" placeholder="Rechercher par nom..." class="form-control" @bind="SearchQuery" @bind:event="oninput" style="max-width: 350px;">
+                <button class="btn btn-primary" style="background: var(--success); color: white; border: none; font-weight: bold;" @onclick="OpenNewForm">
+                    + Ajouter un employé
+                </button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="custom-table">
+                <thead>
+                    <tr>
+                        <th>Matricule & Agent</th>
+                        <th class="hide-mobile">Poste & Contrat</th>
+                        <th class="hide-mobile" style="text-align: center;">Statut</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (IsLoading)
+                    {
+                        <tr><td colspan="4" style="text-align:center;">Chargement...</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var staff in FilteredStaff)
+                        {
+                            <tr>
+                                <td>
+                                    <b>[@staff.Matricule] @staff.Name</b><br>
+                                    <small>✉️ @staff.Email</small>
+                                </td>
+                                <td class="hide-mobile">
+                                    <span class="badge" style="background:#e2e8f0; color:#334155;">@staff.Role</span>
+                                    <span class="badge badge-purple">@(staff.ContractType?.ToUpper())</span><br>
+                                    <b>SB: @FormatMoney(staff.BaseSalary)</b>
+                                </td>
+                                <td class="hide-mobile" style="text-align: center;">
+                                    <span style="color:@(staff.Active ? "var(--success)" : "var(--danger)"); font-weight:bold;">
+                                        @(staff.Active ? "Actif" : "Suspendu")
+                                    </span>
+                                </td>
+                                <td style="text-align:right;">
+                                    <button class="btn btn-outline" style="margin-bottom:4px; width:100%;" @onclick="() => EditStaff(staff)">Éditer</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+else
+{
+    <!-- VUE 2 : FORMULAIRE EMPLOYÉ -->
+    <section class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 class="card-title">@(string.IsNullOrEmpty(EditingStaff.FirebaseUid) ? "Nouvelle Fiche" : "Modification Fiche")</h2>
+            <button class="btn btn-outline" @onclick="CloseForm">🔙 Retour</button>
+        </div>
+        <div class="card-body">
+            <EditForm Model="EditingStaff" OnValidSubmit="SaveStaff">
+
+                <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:5px;">1. Informations Générales & Profil</h3>
+
+                <div class="form-grid-2">
+                    <div class="form-group"><label>Email de connexion *</label><InputText @bind-Value="EditingStaff.Email" class="form-control" disabled="@(!string.IsNullOrEmpty(EditingStaff.FirebaseUid))" required /></div>
+                    <div class="form-group"><label>Matricule *</label><InputText @bind-Value="EditingStaff.Matricule" class="form-control" required /></div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-group"><label>Nom complet *</label><InputText @bind-Value="EditingStaff.Name" class="form-control" required /></div>
+                    <div class="form-group">
+                        <label>Sexe *</label>
+                        <InputSelect @bind-Value="EditingStaff.Sexe" class="form-control">
+                            <option value="Masculin">Masculin</option>
+                            <option value="Féminin">Féminin</option>
+                        </InputSelect>
+                    </div>
+                </div>
+
+                <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px; margin-top:20px; border-bottom:1px solid var(--border); padding-bottom:5px;">2. Poste & Rémunération</h3>
+
+                <div class="form-grid-3">
+                    <div class="form-group">
+                        <label>Poste Actuel (Rôle) *</label>
+                        <!-- bind:after permet d'exécuter du code quand la valeur change -->
+                        <InputSelect @bind-Value="EditingStaff.Role" @bind-Value:after="OnRoleChanged" class="form-control" required>
+                            <option value="commercial">Commercial</option>
+                            <option value="rh">Ressources Humaines</option>
+                            <option value="partenaire">Partenaire Externe</option>
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Type de Contrat *</label>
+                        <InputSelect @bind-Value="EditingStaff.ContractType" class="form-control" disabled="@IsPartner">
+                            @if (IsPartner)
+                            {
+                                <option value="prestataire">Prestation</option>
+                            }
+                            else
+                            {
+                                <option value="cdi">CDI</option>
+                                <option value="cdd">CDD</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Catégorie *</label>
+                        <InputSelect @bind-Value="EditingStaff.Categorie" class="form-control" disabled="@IsPartner">
+                            <option value="non_cadre">Non Cadre</option>
+                            <option value="cadre">Cadre</option>
+                        </InputSelect>
+                    </div>
+                </div>
+
+                <!-- AFFICHAGE CONDITIONNEL MAGIQUE SANS JAVASCRIPT -->
+                @if (EditingStaff.ContractType == "cdd")
+                {
+                    <div style="background:#fefce8; padding:10px; border-radius:6px; border:1px solid #fde047; margin-bottom: 12px;">
+                        <label style="font-size:0.85rem; color:#b45309; margin-bottom: 5px;">Durée du contrat (en mois) *</label>
+                        <InputNumber @bind-Value="EditingStaff.ContractDuration" class="form-control" min="1" required />
+                    </div>
+                }
+
+                @if (!IsPartner)
+                {
+                    <div class="form-group">
+                        <label>Salaire de Base Mensuel Brut (FCFA) *</label>
+                        <InputNumber @bind-Value="EditingStaff.BaseSalary" class="form-control" min="0" required />
+                    </div>
+                }
+                else
+                {
+                    <div style="background:#f3e8ff; padding:12px; border-radius:6px; border:1px solid var(--purple); margin-bottom:15px;">
+                        <label style="color:var(--purple); font-weight:bold;">Commission Partenaire (%) *</label>
+                        <InputNumber @bind-Value="EditingStaff.CommissionPct" class="form-control" min="0" max="100" />
+                    </div>
+                }
+
+                <button type="submit" class="btn btn-primary" style="width:100%; padding: 14px; font-size:1.05rem; margin-top:20px;">
+                    💾 Enregistrer l'Employé
+                </button>
+            </EditForm>
+        </div>
+    </section>
+}
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div id="toast" style="display:block;">@ToastMessage</div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private bool IsFormView = false;
+    private string SearchQuery = "";
+    private string ToastMessage = "";
+
+    private List<User> _allStaff = new();
+    private User EditingStaff = new();
+
+    // Variables calculées pour simplifier les conditions d'affichage
+    private bool IsPartner => EditingStaff.Role == "partenaire";
+
+    private IEnumerable<User> FilteredStaff => _allStaff
+        .Where(s => string.IsNullOrWhiteSpace(SearchQuery) || s.Name.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.Delay(500); // Simulation
+
+        _allStaff = new List<User>
+        {
+            new User { FirebaseUid = "U1", Matricule = "BT-24850", Name = "KABORE Alain", Email = "alain@bothtech.bf", Role = "commercial", ContractType = "cdi", BaseSalary = 150000, Active = true }
+        };
+        IsLoading = false;
+    }
+
+    private void OpenNewForm()
+    {
+        EditingStaff = new User { Matricule = GenerateMatricule(), Role = "commercial", ContractType = "cdi", Sexe = "Masculin" };
+        IsFormView = true;
+    }
+
+    private void EditStaff(User staff)
+    {
+        EditingStaff = new User
+        {
+            FirebaseUid = staff.FirebaseUid,
+            Matricule = staff.Matricule,
+            Name = staff.Name,
+            Email = staff.Email,
+            Role = staff.Role,
+            ContractType = staff.ContractType,
+            ContractDuration = staff.ContractDuration,
+            Categorie = staff.Categorie,
+            BaseSalary = staff.BaseSalary,
+            CommissionPct = staff.CommissionPct,
+            Active = staff.Active
+        };
+        IsFormView = true;
+    }
+
+    private void CloseForm()
+    {
+        IsFormView = false;
+    }
+
+    private void OnRoleChanged()
+    {
+        // Si on sélectionne "Partenaire", on force le type de contrat à "prestataire"
+        if (IsPartner)
+        {
+            EditingStaff.ContractType = "prestataire";
+        }
+        else if (EditingStaff.ContractType == "prestataire")
+        {
+            EditingStaff.ContractType = "cdi"; // Remet CDI par défaut si on quitte partenaire
+        }
+    }
+
+    private async Task SaveStaff()
+    {
+        // Logique de sauvegarde
+        await ShowToast("✅ Profil Agent enregistré !");
+        IsFormView = false;
+    }
+
+    private string GenerateMatricule()
+    {
+        var year = DateTime.Now.Year.ToString().Substring(2);
+        var rand = new Random().Next(100, 999);
+        return $"BT-{year}{rand}";
+    }
+
+    private string FormatMoney(int amount)
+    {
+        var nfi = (NumberFormatInfo)CultureInfo.GetCultureInfo("fr-FR").NumberFormat.Clone();
+        nfi.NumberGroupSeparator = " ";
+        return amount.ToString("N0", nfi) + " FCFA";
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,196 @@
+﻿@page "/"
+@layout bothtech.Shared.Layout.MainLayout
+@using bothtech.Shared.Models
+@using bothtech.Shared.Services
+@using bothtech.Shared.Components
+@inject DatabaseService DbService
+@inject CartService CartService
+@inject SyncService SyncService
+
+<PageTitle>Both Tech Burkina - Ordinateurs, Smartphones & Accessoires</PageTitle>
+
+<section class="catalogue-section">
+    <header class="catalogue-header">
+
+        <!-- Barre de recherche -->
+        <div class="search-box">
+            <input type="search"
+                   placeholder="Rechercher PC, iPhone, SSD, RAM..."
+                   @bind="SearchQuery"
+                   @bind:event="oninput"
+                   class="form-control" />
+        </div>
+
+        <!-- Filtres par catégorie -->
+        <div class="filter-chips" role="tablist">
+            <button class="chip @(CurrentCategory == "all" ? "active" : "")" @onclick='() => ChangeCategory("all")'>Tous</button>
+            <button class="chip @(CurrentCategory == "laptops" ? "active" : "")" @onclick='() => ChangeCategory("laptops")'>Ordinateurs</button>
+            <button class="chip @(CurrentCategory == "smartphones" ? "active" : "")" @onclick='() => ChangeCategory("smartphones")'>Smartphones</button>
+            <button class="chip @(CurrentCategory == "tablets" ? "active" : "")" @onclick='() => ChangeCategory("tablets")'>Tablettes</button>
+            <button class="chip @(CurrentCategory == "accessories" ? "active" : "")" @onclick='() => ChangeCategory("accessories")'>Accessoires</button>
+        </div>
+    </header>
+
+    <!-- ========================================== -->
+    <!-- LA ZONE D'AFFICHAGE DES PRODUITS RESTAURÉE -->
+    <!-- ========================================== -->
+    <div class="products-grid">
+        @if (_isLoading)
+        {
+            <div style="grid-column: 1 / -1; text-align:center; padding: 40px; color: var(--gray-600);">Chargement du catalogue...</div>
+        }
+        else if (!PaginatedProducts.Any())
+        {
+            <div style="grid-column: 1 / -1; text-align:center; padding: 40px; color: var(--text-muted);">Aucun produit disponible pour cette recherche.</div>
+        }
+        else
+        {
+            @foreach (var product in PaginatedProducts)
+            {
+                <ProductCard Product="@product" IsB2B="@_isUserB2B" OnAddToCart="HandleAddToCart" />
+            }
+        }
+    </div>
+    <!-- ========================================== -->
+    <!-- Pagination -->
+    @if (TotalPages > 1)
+    {
+        <nav class="pagination-controls" style="display: flex; justify-content: center; gap: 15px; padding: 30px 0;">
+            <button class="btn btn-outline" disabled="@(CurrentPage == 1)" @onclick="PrevPage">Précédent</button>
+            <span style="align-self: center; font-weight: bold;">Page @CurrentPage / @TotalPages</span>
+            <button class="btn btn-outline" disabled="@(CurrentPage == TotalPages)" @onclick="NextPage">Suivant</button>
+        </nav>
+    }
+</section>
+
+<!-- Notifications Toast -->
+@if (!string.IsNullOrEmpty(_toastMessage))
+{
+    <div id="toast" style="display:block;">@_toastMessage</div>
+}
+
+@code {
+    // --- État des données ---
+    private List<Product> _allProducts = new();
+    private bool _isLoading = true;
+    private bool _isUserB2B = false;
+    private string _toastMessage = "";
+    private bool _isSyncing = false;
+
+    // --- Filtres et Recherche ---
+    private string _currentCategory = "all";
+    private string CurrentCategory
+    {
+        get => _currentCategory;
+        set { _currentCategory = value; CurrentPage = 1; }
+    }
+
+    private string _searchQuery = "";
+    private string SearchQuery
+    {
+        get => _searchQuery;
+        set { _searchQuery = value; CurrentPage = 1; }
+    }
+
+    // --- Pagination ---
+    private int CurrentPage { get; set; } = 1;
+    private int ItemsPerPage { get; set; } = 8;
+
+    // --- Logique de filtrage en temps réel ---
+    private IEnumerable<Product> FilteredProducts => _allProducts
+        // Vous pourrez décommenter cette ligne plus tard quand tout marchera
+        // .Where(p => p.Active && p.Validated)
+
+        .Where(p => CurrentCategory == "all" || string.Equals(p.Category, CurrentCategory, StringComparison.OrdinalIgnoreCase))
+        .Where(p => string.IsNullOrWhiteSpace(SearchQuery) ||
+                    (p.Name != null && p.Name.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
+                    (p.Brand != null && p.Brand.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)))
+        .OrderByDescending(p => p.OldPrice.HasValue && p.OldPrice > p.Price)
+        .ThenByDescending(p => p.CreatedAt);
+
+    private int TotalPages => FilteredProducts.Any() ? (int)Math.Ceiling(FilteredProducts.Count() / (double)ItemsPerPage) : 1;
+
+    private IEnumerable<Product> PaginatedProducts => FilteredProducts
+        .Skip((CurrentPage - 1) * ItemsPerPage)
+        .Take(ItemsPerPage);
+
+    // --- Initialisation sécurisée pour Blazor Server ---
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadProducts();
+            _ = SyncFirebaseDataAsync();
+        }
+    }
+
+    private async Task LoadProducts()
+    {
+        try
+        {
+            var rawProducts = await DbService.GetProductsAsync();
+            _allProducts = rawProducts;
+            _isLoading = false;
+
+            // Force l'UI à se rafraîchir
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DEBUG] ERREUR DB: {ex.Message}");
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SyncFirebaseDataAsync()
+    {
+        if (_isSyncing) return;
+        _isSyncing = true;
+
+        try
+        {
+            await SyncService.SyncProductsSilentlyAsync();
+            await LoadProducts();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erreur synchro: {ex.Message}");
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
+    }
+
+    // --- Actions UI ---
+    private void ChangeCategory(string category)
+    {
+        CurrentCategory = category;
+    }
+
+    private void PrevPage()
+    {
+        if (CurrentPage > 1) CurrentPage--;
+    }
+
+    private void NextPage()
+    {
+        if (CurrentPage < TotalPages) CurrentPage++;
+    }
+
+    private async Task HandleAddToCart(Product product)
+    {
+        string message = CartService.AddToCart(product, null);
+        await ShowToast(message);
+    }
+
+    private async Task ShowToast(string message)
+    {
+        _toastMessage = message;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(3000);
+        _toastMessage = "";
+        await InvokeAsync(StateHasChanged);
+    }
+}

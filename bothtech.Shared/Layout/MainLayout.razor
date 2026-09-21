@@ -1,0 +1,218 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@using bothtech.Shared.Services
+@using bothtech.Shared.Models
+@inject CartService CartService
+@inject NavigationManager NavManager
+
+<div>
+    <!-- EN-TÊTE GLOBAL -->
+    <header class="site-header">
+        <div class="top-announcement">
+            <div class="marquee-content">
+                <span>⚡ Garantie 6 à 12 mois | Retrait & Livraison Partout au Burkina</span>
+            </div>
+        </div>
+
+        <nav class="nav-container">
+            <div class="flex-between w-full">
+                <a href="/" class="brand-logo flex-center gap-10" style="text-decoration:none;">
+                    <img src="_content/bothtech.Shared/images/Both_Tech_Burkina.jpeg" alt="Logo Both Tech Burkina" class="brand-logo-img">
+                    <span class="brand-text">Both Tech Burkina</span>
+                </a>
+                <div class="header-actions">
+                    <!-- Bouton Connexion / Profil -->
+                    <button class="btn-outline admin-nav-btn" @onclick="OpenAuth" aria-label="Connexion à mon compte">
+                        <span class="icon" aria-hidden="true">👤</span>
+                        <span class="hide-text-mobile">Connexion</span>
+                    </button>
+                    <!-- Bouton Panier Dynamique -->
+                    <button class="cart-trigger-btn" @onclick="OpenCart" aria-label="Ouvrir le panier">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+
+                        @if (CartService.GetItemCount() > 0)
+                        {
+                            <span class="cart-badge">@CartService.GetItemCount()</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <!-- CONTENU DYNAMIQUE (Home.razor s'affiche ici) -->
+    <main class="main-content" style="padding: 0;">
+        @Body
+    </main>
+
+    <!-- ========================================== -->
+    <!-- OVERLAYS ET MODALES -->
+    <!-- ========================================== -->
+    <!-- PANIER LATÉRAL (DRAWER) DYNAMIQUE -->
+    <aside class="cart-drawer @(isCartOpen ? "open" : "")">
+        <div class="cart-drawer-overlay" @onclick="CloseAll"></div>
+        <div class="cart-drawer-panel" @onclick:stopPropagation="true">
+            <header class="cart-header">
+                <span id="cartTitle">Ma Sélection</span>
+                <button class="close-btn" @onclick="CloseAll">&times;</button>
+            </header>
+            <div class="cart-items" id="cartItemsContainer">
+                @if (!CartService.CartItems.Any())
+                {
+                    <p style="text-align: center; padding: 20px; color: var(--text-muted);">Votre panier est vide.</p>
+                }
+                else
+                {
+                    @foreach (var item in CartService.CartItems)
+                    {
+                        <div class="cart-item" style="display: flex; align-items: center; border-bottom: 1px solid #eee; padding: 15px 10px;">
+                            <div style="flex: 1;">
+                                <h4 style="font-size: 0.95rem; margin: 0 0 8px 0; color: #333;">@item.ProductName</h4>
+
+                                <!-- Boutons + et - pour ajuster la quantité -->
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="display:flex; align-items:center; border: 1px solid #ddd; border-radius: 4px; overflow: hidden;">
+                                        <button type="button" style="background:#f8f9fa; border:none; padding:4px 10px; cursor:pointer;" @onclick="() => CartService.UpdateQuantity(item.ProductFirebaseId, -1)">-</button>
+                                        <span style="font-weight: bold; width: 30px; text-align: center;">@item.Quantity</span>
+                                        <button type="button" style="background:#f8f9fa; border:none; border-left:1px solid #ddd; padding:4px 10px; cursor:pointer;" @onclick="() => CartService.UpdateQuantity(item.ProductFirebaseId, 1)">+</button>
+                                    </div>
+                                    <span style="font-size: 0.85rem; color: var(--gray-600);">x @item.UnitPrice.ToString("N0") F</span>
+                                </div>
+                            </div>
+
+                            <div style="font-weight: bold; margin: 0 15px;">
+                                @item.TotalPrice.ToString("N0") F
+                            </div>
+
+                            <!-- Suppression du produit (revient à mettre la quantité à 0) -->
+                            <button class="close-btn" style="color: var(--danger); font-size: 1.5rem; background:none; border:none; cursor:pointer;" @onclick="() => CartService.RemoveFromCart(item.ProductFirebaseId)">&times;</button>
+                        </div>
+                    }
+                }
+            </div>
+            <footer class="cart-footer">
+                <div class="cart-total-row">
+                    <span>Total</span>
+                    <span id="cartTotalPrice">@CartService.GetTotal().ToString("N0") FCFA</span>
+                </div>
+                <button class="btn btn-primary w-full" disabled="@(!CartService.CartItems.Any())" style="background:#25d366; border:none;">Valider la commande (WhatsApp)</button>
+            </footer>
+        </div>
+    </aside>
+
+    <!-- MODALE AUTHENTIFICATION -->
+    <div class="modal-overlay @(isAuthOpen ? "open" : "")" @onclick="CloseAll">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <header class="modal-header">
+                <h3 class="brand-text">Both Tech Burkina</h3>
+                <button class="close-btn" @onclick="CloseAll">&times;</button>
+            </header>
+            <div class="modal-body">
+                <p class="text-center text-muted mb-24" style="line-height: 1.5; font-size: 0.95rem;">
+                    Connectez-vous ou créez un compte en un clic pour sauvegarder vos préférences.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <button class="btn btn-social">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h5.4c-.23 1.3-1.63 3.82-5.4 3.82-3.25 0-5.9-2.7-5.9-6.05s2.65-6.05 5.9-6.05c1.86 0 3.1.8 3.8 1.47l2.13-2.05C16.5 3.5 14.4 2.6 11.8 2.6 6.6 2.6 2.4 6.8 2.4 12s4.2 9.4 9.4 9.4c5.4 0 9.02-3.8 9.02-9.17 0-.67-.07-1.12-.13-1.63z" /></svg>
+                        Continuer avec Google
+                    </button>
+                    <!-- Bouton connecté au NavigationManager -->
+                    <button class="btn btn-social auth0" @onclick="LoginWithAuth0">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.57 8.05c-.32-.78-.77-1.5-1.32-2.12-.55-.63-1.2-1.16-1.95-1.58-.75-.42-1.58-.73-2.48-.94-.9-.21-1.85-.31-2.82-.31-1.85 0-3.51.3-4.99.91-1.48.61-2.77 1.48-3.86 2.61-1.09 1.13-1.94 2.49-2.55 4.09-.61 1.6-.92 3.37-.92 5.31 0 1.94.31 3.71.92 5.31.61 1.6 1.46 2.96 2.55 4.09 1.09 1.13 2.38 2 3.86 2.61 1.48.61 3.14.91 4.99.91.97 0 1.92-.1 2.82-.31.9-.21 1.73-.52 2.48-.94.75-.42 1.4-.95 1.95-1.58.55-.62 1-1.34 1.32-2.12.32-.78.48-1.63.48-2.56 0-.93-.16-1.78-.48-2.56zm-9.57 9.15c-2.95 0-5.35-2.4-5.35-5.35s2.4-5.35 5.35-5.35 5.35 2.4 5.35 5.35-2.4 5.35-5.35 5.35z" /></svg>
+                        Continuer avec Auth0
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODALE PROFIL -->
+    <div class="modal-overlay @(isProfileOpen ? "open" : "")" @onclick="CloseAll">
+        <div class="modal-card" @onclick:stopPropagation="true">
+            <header class="modal-header">
+                <h3>Mon profil</h3>
+                <button class="close-btn" @onclick="CloseAll">&times;</button>
+            </header>
+            <div class="modal-body">
+                <div class="alert-warning" role="alert" style="display:block;">
+                    ⚠️ Indiquez votre téléphone et adresse avant d'ajouter des articles.
+                </div>
+                <form>
+                    <input type="email" class="form-input" disabled value="utilisateur@email.com">
+                    <input type="text" class="form-input" required placeholder="Nom complet">
+                    <input type="tel" class="form-input" required placeholder="Numéro de téléphone">
+                    <input type="text" class="form-input" required placeholder="Adresse de livraison">
+                    <button type="submit" class="btn btn-primary mt-10 mb-14 w-full">Enregistrer les modifications</button>
+                    <button type="button" class="btn btn-outline w-full" style="color:var(--danger); border-color:var(--danger);">Déconnexion</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- WIDGET CHAT -->
+    <button class="chat-widget-btn" @onclick="ToggleChat" aria-label="Ouvrir le chat du service client">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
+    </button>
+    <aside class="chat-window @(isChatOpen ? "open" : "")" @onclick:stopPropagation="true">
+        <header class="chat-header">
+            <span>Service Client</span>
+            <button class="close-btn" @onclick="CloseAll" style="background:transparent; color:white;">&times;</button>
+        </header>
+        <div class="chat-messages" style="display: flex; flex-direction: column;">
+            <div class="msg-bubble admin mt-10">Bonjour ! Comment pouvons-nous vous aider aujourd'hui ?</div>
+        </div>
+        <form class="chat-input-area">
+            <input type="file" accept="image/jpeg, image/jpg" hidden>
+            <button type="button" class="chat-action-btn" aria-label="Joindre une image">📎</button>
+            <input type="text" placeholder="Écrivez votre message..." autocomplete="off">
+            <button type="button" class="chat-action-btn" aria-label="Message vocal">🎤</button>
+            <button type="submit" class="chat-send-btn" aria-label="Envoyer le message">➤</button>
+        </form>
+    </aside>
+</div>
+
+@code {
+    // === GESTION DE L'ÉTAT DES MODALES ===
+    private bool isCartOpen = false;
+    private bool isAuthOpen = false;
+    private bool isProfileOpen = false;
+    private bool isChatOpen = false;
+
+    protected override void OnInitialized()
+    {
+        CartService.OnCartChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        CartService.OnCartChanged -= StateHasChanged;
+    }
+
+    private void OpenCart() { CloseAll(); isCartOpen = true; }
+    private void OpenAuth() { CloseAll(); isAuthOpen = true; }
+    private void OpenProfile() { CloseAll(); isProfileOpen = true; }
+
+    private void ToggleChat()
+    {
+        bool wasOpen = isChatOpen;
+        CloseAll();
+        isChatOpen = !wasOpen;
+    }
+
+    private void CloseAll()
+    {
+        isCartOpen = false;
+        isAuthOpen = false;
+        isProfileOpen = false;
+        isChatOpen = false;
+        StateHasChanged();
+    }
+
+    // === GESTION DE L'AUTHENTIFICATION ===
+    private void LoginWithAuth0()
+    {
+        // En Blazor Server, on redirige généralement vers une page /Login (Razor Page standard)
+        // qui lance le challenge HTTP vers Auth0.
+        NavManager.NavigateTo("/Login", forceLoad: true);
+    }
+}

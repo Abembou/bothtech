@@ -1,0 +1,148 @@
+﻿@page "/admin/mes-creances"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using System.Globalization
+
+<PageTitle>Espace Partenaire B2B | BothTech</PageTitle>
+
+<div class="dashboard-grid" style="grid-template-columns: 1fr;">
+    <div class="kpi-card" style="border:2px solid var(--danger);">
+        <div class="kpi-label" style="color:var(--danger); font-weight:bold;">Total Reste à Payer</div>
+        <div class="kpi-value" id="kpiTotalDettes" style="color:var(--danger);">@FormatMoney(TotalDettes)</div>
+    </div>
+</div>
+
+<section class="card">
+    <div class="card-header"><h2 class="card-title">Mes factures et créances B2B</h2></div>
+    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+        <table class="custom-table">
+            <thead>
+                <tr>
+                    <th>Date & Réf.</th>
+                    <th class="hide-mobile">Articles</th>
+                    <th class="hide-mobile">Montant Total</th>
+                    <th>Reste à Payer</th>
+                    <th style="text-align: right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (IsLoading)
+                {
+                    <tr><td colspan="5" style="text-align: center; padding: 20px;">Chargement...</td></tr>
+                }
+                else if (!B2bOrders.Any())
+                {
+                    <tr><td colspan="5" style="text-align: center; color:var(--success); font-weight:bold; padding: 20px;">Vous n'avez aucune créance en cours.</td></tr>
+                }
+                else
+                {
+                    @foreach (var order in B2bOrders)
+                    {
+                        <tr>
+                            <td>
+                                <b>#@order.FirebaseId?.Substring(0, 6).ToUpper()</b><br>
+                                <small>@FormatDate(order.CreatedAt)</small>
+                                <div class="mobile-only-display" style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-size:0.85rem; line-height:1.5;">
+                                    <strong style="color:var(--text-main);">Total: @FormatMoney(order.Total)</strong><br>
+                                    <span style="color:var(--text-muted); display:inline-block; margin-top:4px;">
+                                        @((MarkupString)GetItemsHtml(order.Items))
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="hide-mobile"><small>@((MarkupString)GetItemsHtml(order.Items))</small></td>
+                            <td class="hide-mobile"><b>@FormatMoney(order.Total)</b></td>
+                            <td>
+                                <b style="color:@(order.Reste > 0 ? "var(--danger)" : "var(--success)"); font-size:1.1rem;">
+                                    @FormatMoney(order.Reste)
+                                </b>
+                            </td>
+                            <td style="text-align:right;">
+                                @if (order.Reste > 0)
+                                {
+                                    <button class="btn btn-success" @onclick="() => PayOrder(order)" style="background:var(--success); color:white; border:none; padding:8px 12px; font-weight:bold; border-radius:6px; cursor:pointer;">
+                                        Payer
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-success">Soldé</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div id="toast" style="display:block;">@ToastMessage</div>
+}
+
+@code {
+    private bool IsLoading = true;
+    private List<Order> B2bOrders = new();
+    private string ToastMessage = "";
+
+    // MAGIE DU C# : Calcule automatiquement la somme totale des restes à payer de la liste
+    private int TotalDettes => B2bOrders.Sum(o => o.Reste);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Plus tard, nous chargerons les vraies données depuis Firebase/MySQL ici.
+        // On simule un délai réseau.
+        await Task.Delay(500);
+
+        // Simulation d'une commande (Données fictives pour tester le design)
+        B2bOrders = new List<Order>
+        {
+            new Order {
+                FirebaseId = "-P1k0NqVoeRzH6NIhMZE",
+                CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Total = 195000,
+                Reste = 195000,
+                Items = new List<OrderItem> { new OrderItem { ProductName = "Dell Latitude 5400 Core i5", Quantity = 1 } }
+            }
+        };
+
+        IsLoading = false;
+    }
+
+    private async Task PayOrder(Order order)
+    {
+        int ussdAmount = (int)Math.Round(order.Reste * 1.1);
+        string ussdCode = $"*144*2*1*77450182*{ussdAmount}#";
+
+        // Plus tard, on enverra vraiment le message dans FirebaseService
+        await ShowToast($"Paiement initié. L'administration a été notifiée (Code USSD: {ussdCode}) !");
+    }
+
+    private string FormatMoney(int amount)
+    {
+        var nfi = (NumberFormatInfo)CultureInfo.GetCultureInfo("fr-FR").NumberFormat.Clone();
+        nfi.NumberGroupSeparator = " ";
+        return amount.ToString("N0", nfi) + " FCFA";
+    }
+
+    private string FormatDate(long timestamp)
+    {
+        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy");
+    }
+
+    private string GetItemsHtml(List<OrderItem> items)
+    {
+        if (items == null || !items.Any()) return "";
+        return string.Join("<br>", items.Select(i => $"{i.Quantity}x {i.ProductName}"));
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}
