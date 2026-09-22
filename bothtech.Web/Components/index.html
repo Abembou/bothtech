@@ -1,0 +1,98 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Both Tech Burkina</title>
+    <base href="/" />
+    <!-- ========================================================= -->
+    <!-- 1. CSS PROVENANT DU PROJET PARTAGÉ (bothtech.Shared)      -->
+    <!-- ========================================================= -->
+    <link rel="stylesheet" href="_content/bothtech.Shared/css/main.css" />
+
+    <!-- FontAwesome pour les icônes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- ========================================================= -->
+    <!-- 2. CSS SPÉCIFIQUE AU PROJET WEB                           -->
+    <!-- ========================================================= -->
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="bothtech.styles.css" />
+</head>
+<body>
+    <div id="app">Chargement...</div>
+
+    <script>
+        window.audioChat = {
+            mediaRecorder: null,
+            audioChunks: [],
+
+            startRecording: async function () {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    console.error("L'API micro est introuvable. Êtes-vous bien en HTTPS ou sur Localhost ?");
+                    return false;
+                }
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    this.mediaRecorder = new MediaRecorder(stream);
+                    this.audioChunks = [];
+
+                    this.mediaRecorder.ondataavailable = event => {
+                        if (event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                        }
+                    };
+
+                    this.mediaRecorder.start();
+                    return true;
+                } catch (err) {
+                    console.error("Accès au micro refusé ou erreur:", err);
+                    return false;
+                }
+            },
+
+            stopRecording: async function () {
+                return new Promise((resolve) => {
+                    if (!this.mediaRecorder || this.mediaRecorder.state === "inactive") {
+                        resolve(null);
+                        return;
+                    }
+
+                    this.mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.readAsDataURL(audioBlob);
+                        reader.onloadend = () => {
+                            resolve(reader.result);
+                        };
+
+                        this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    this.mediaRecorder.stop();
+                });
+            },
+
+            cancelRecording: function () {
+                if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+                    this.mediaRecorder.stop();
+                    this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+                this.mediaRecorder = null;
+                this.audioChunks = [];
+            },
+
+            playAudio: function (base64Audio) {
+                if (base64Audio) {
+                    const audio = new Audio(base64Audio);
+                    audio.play().catch(e => console.error("Erreur de lecture audio:", e));
+                }
+            }
+        };
+    </script>
+
+    <!-- 👇 SCRIPT CORRIGÉ POUR LE PROJET WEB 👇 -->
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

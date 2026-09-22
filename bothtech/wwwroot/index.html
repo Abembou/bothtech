@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>bothtech</title>
 
-    <base href="/" />
+    <base href="./" />
 
     <!-- ========================================================= -->
     <!-- 1. CSS PROVENANT DU PROJET PARTAGÉ (bothtech.Shared)      -->
@@ -28,15 +28,84 @@
 </head>
 
 <body>
+    <div id="app">Chargement...</div>
 
-    <!-- Barre d'état sécurisée pour iOS/Android gérée dans app.css -->
-    <div class="status-bar-safe-area"></div>
-
-    <!-- Conteneur principal de l'application Blazor -->
-    <div id="app">Loading...</div>
-
-    <!-- Script natif de Blazor Hybrid pour MAUI -->
+    <!-- MAUI injecte ses propres interops en arrière-plan -->
     <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <!-- FONCTIONS JAVASCRIPT POUR LE MICROPHONE -->
+    <!-- FONCTIONS JAVASCRIPT POUR LE MICROPHONE (SÉCURISÉES) -->
+
+    <script>
+        window.audioChat = {
+            mediaRecorder: null,
+            audioChunks: [],
+
+            startRecording: async function () {
+                // 1. Vérification de la compatibilité et du HTTPS
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    console.error("L'API micro est introuvable. Êtes-vous bien en HTTPS ou sur Localhost ?");
+                    return false;
+                }
+
+                try {
+                    // 2. Demande d'autorisation
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    this.mediaRecorder = new MediaRecorder(stream);
+                    this.audioChunks = [];
+
+                    this.mediaRecorder.ondataavailable = event => {
+                        if (event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                        }
+                    };
+
+                    this.mediaRecorder.start();
+                    return true; // Accès accordé
+                } catch (err) {
+                    console.error("Accès au micro refusé ou erreur:", err);
+                    return false; // Accès refusé par l'utilisateur
+                }
+            },
+
+            stopRecording: async function () {
+                return new Promise((resolve) => {
+                    if (!this.mediaRecorder || this.mediaRecorder.state === "inactive") {
+                        resolve(null);
+                        return;
+                    }
+
+                    this.mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        reader.readAsDataURL(audioBlob);
+                        reader.onloadend = () => {
+                            resolve(reader.result);
+                        };
+
+                        this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    this.mediaRecorder.stop();
+                });
+            },
+
+            cancelRecording: function () {
+                if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+                    this.mediaRecorder.stop();
+                    this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+                this.mediaRecorder = null;
+                this.audioChunks = [];
+            },
+
+            playAudio: function (base64Audio) {
+                if (base64Audio) {
+                    const audio = new Audio(base64Audio);
+                    audio.play().catch(e => console.error("Erreur de lecture audio:", e));
+                }
+            }
+        };
+    </script>
 
 </body>
 </html>

@@ -1,0 +1,10 @@
+﻿@inject NavigationManager NavigationManager
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Redirige vers la page de connexion
+        // Le paramètre "true" force le rechargement si nécessaire
+        NavigationManager.NavigateTo("/login", true);
+    }
+}

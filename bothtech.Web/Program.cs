@@ -3,7 +3,7 @@ using bothtech.Shared.Services;
 using bothtech.Web.Components;
 using bothtech.Web.Services;
 
-// 1. CONSTRUCTEUR SERVEUR (Remplace WebAssemblyHostBuilder)
+// 1. CONSTRUCTEUR SERVEUR
 var builder = WebApplication.CreateBuilder(args);
 
 // Ajout des composants Razor avec le mode interactif Serveur
@@ -11,18 +11,15 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 // 2. SERVICES SYSTÈME & MULTIPLATEFORME
-// HttpClient basique pour les requêtes si besoin dans les composants partagés
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri("https://localhost") });
-
-// Service spécifique au web injecté dans le projet partagé
 builder.Services.AddSingleton<IFormFactor, FormFactor>();
 
-// 3. SERVICES MÉTIER (Vos créations)
+// 3. SERVICES MÉTIER
 builder.Services.AddSingleton<FirebaseService>();
 builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<CartService>();
-
-// --- AJOUT : CONFIGURATION CLIENT HTTP PERMISSIF POUR FIREBASE ---
+builder.Services.AddSingleton<IPlatformService>(new PlatformService(false));
+// --- CONFIGURATION CLIENT HTTP PERMISSIF POUR FIREBASE ---
 builder.Services.AddHttpClient("FirebaseClient")
     .ConfigurePrimaryHttpMessageHandler(() =>
     {
@@ -40,10 +37,9 @@ builder.Services.AddScoped<SyncService>(sp =>
     var dbService = sp.GetRequiredService<DatabaseService>();
     return new SyncService(httpClientFactory.CreateClient("FirebaseClient"), dbService);
 });
-// -----------------------------------------------------------------
 
 // 4. SÉCURITÉ ET AUTHENTIFICATION
-builder.Services.AddAuthorizationCore(); // Active la gestion des rôles (Admin, RH, etc.)
+builder.Services.AddAuthorizationCore(); // Active la gestion des rôles
 
 // On enregistre notre fournisseur d'identité personnalisé
 builder.Services.AddScoped<CustomAuthStateProvider>();
@@ -51,6 +47,12 @@ builder.Services.AddScoped<AuthenticationStateProvider>(provider => provider.Get
 
 // Service de connexion
 builder.Services.AddScoped<AuthService>();
+
+// =========================================================================
+// ?? L'ASTUCE ARCHITECTURALE EST ICI :
+// Contrairement au projet MAUI, nous n'injectons PAS "NativeWebAuthenticator".
+// Le projet Shared détectera qu'il est "null", et utilisera le navigateur Web standard !
+// =========================================================================
 
 // === CONSTRUCTION DE L'APPLICATION ===
 var app = builder.Build();
@@ -64,12 +66,12 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseAntiforgery();
-app.MapStaticAssets(); // Nouveauté .NET 9 pour les fichiers statiques
+app.MapStaticAssets();
 
 // 5. MAPPAGE DES COMPOSANTS & LIAISON AVEC LE PROJET PARTAGÉ
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
-    // Cette ligne indique au serveur web de charger toutes les pages de bothtech.Shared
+    // Indique au serveur web de charger toutes les pages de bothtech.Shared
     .AddAdditionalAssemblies(typeof(bothtech.Shared.Services.DatabaseService).Assembly);
 
 // Lancement du serveur

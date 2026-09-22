@@ -2,8 +2,19 @@
 @implements IDisposable
 @using bothtech.Shared.Services
 @using bothtech.Shared.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@using System.Security.Cryptography
+@using System.Text
+@using System.IO
+
 @inject CartService CartService
 @inject NavigationManager NavManager
+@inject AuthService AuthService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject IPlatformService PlatformService
 
 <div>
     <!-- EN-TÊTE GLOBAL -->
@@ -21,15 +32,25 @@
                     <span class="brand-text">Both Tech Burkina</span>
                 </a>
                 <div class="header-actions">
-                    <!-- Bouton Connexion / Profil -->
-                    <button class="btn-outline admin-nav-btn" @onclick="OpenAuth" aria-label="Connexion à mon compte">
-                        <span class="icon" aria-hidden="true">👤</span>
-                        <span class="hide-text-mobile">Connexion</span>
-                    </button>
+
+                    <!-- VÉRIFICATION DE LA CONNEXION POUR L'AVATAR -->
+                    <AuthorizeView>
+                        <Authorized>
+                            <button class="btn-outline admin-nav-btn user-avatar-btn" @onclick="() => OpenProfile(context.User)" aria-label="Mon profil" title="@context.User.Identity?.Name">
+                                <span class="user-initials">@GetInitials(context.User.Identity?.Name)</span>
+                            </button>
+                        </Authorized>
+                        <NotAuthorized>
+                            <button class="btn-outline admin-nav-btn" @onclick="OpenAuth" aria-label="Connexion à mon compte">
+                                <span class="icon" aria-hidden="true">👤</span>
+                                <span class="hide-text-mobile">Connexion</span>
+                            </button>
+                        </NotAuthorized>
+                    </AuthorizeView>
+
                     <!-- Bouton Panier Dynamique -->
                     <button class="cart-trigger-btn" @onclick="OpenCart" aria-label="Ouvrir le panier">
                         <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
-
                         @if (CartService.GetItemCount() > 0)
                         {
                             <span class="cart-badge">@CartService.GetItemCount()</span>
@@ -40,15 +61,11 @@
         </nav>
     </header>
 
-    <!-- CONTENU DYNAMIQUE (Home.razor s'affiche ici) -->
     <main class="main-content" style="padding: 0;">
         @Body
     </main>
 
-    <!-- ========================================== -->
-    <!-- OVERLAYS ET MODALES -->
-    <!-- ========================================== -->
-    <!-- PANIER LATÉRAL (DRAWER) DYNAMIQUE -->
+    <!-- PANIER LATÉRAL -->
     <aside class="cart-drawer @(isCartOpen ? "open" : "")">
         <div class="cart-drawer-overlay" @onclick="CloseAll"></div>
         <div class="cart-drawer-panel" @onclick:stopPropagation="true">
@@ -68,8 +85,6 @@
                         <div class="cart-item" style="display: flex; align-items: center; border-bottom: 1px solid #eee; padding: 15px 10px;">
                             <div style="flex: 1;">
                                 <h4 style="font-size: 0.95rem; margin: 0 0 8px 0; color: #333;">@item.ProductName</h4>
-
-                                <!-- Boutons + et - pour ajuster la quantité -->
                                 <div style="display: flex; align-items: center; gap: 12px;">
                                     <div style="display:flex; align-items:center; border: 1px solid #ddd; border-radius: 4px; overflow: hidden;">
                                         <button type="button" style="background:#f8f9fa; border:none; padding:4px 10px; cursor:pointer;" @onclick="() => CartService.UpdateQuantity(item.ProductFirebaseId, -1)">-</button>
@@ -79,12 +94,9 @@
                                     <span style="font-size: 0.85rem; color: var(--gray-600);">x @item.UnitPrice.ToString("N0") F</span>
                                 </div>
                             </div>
-
                             <div style="font-weight: bold; margin: 0 15px;">
                                 @item.TotalPrice.ToString("N0") F
                             </div>
-
-                            <!-- Suppression du produit (revient à mettre la quantité à 0) -->
                             <button class="close-btn" style="color: var(--danger); font-size: 1.5rem; background:none; border:none; cursor:pointer;" @onclick="() => CartService.RemoveFromCart(item.ProductFirebaseId)">&times;</button>
                         </div>
                     }
@@ -111,13 +123,20 @@
                 <p class="text-center text-muted mb-24" style="line-height: 1.5; font-size: 0.95rem;">
                     Connectez-vous ou créez un compte en un clic pour sauvegarder vos préférences.
                 </p>
+
+                @if (!string.IsNullOrEmpty(authErrorMessage))
+                {
+                    <div class="alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem; border: 1px solid #f5c6cb;">
+                        @authErrorMessage
+                    </div>
+                }
+
                 <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <button class="btn btn-social">
+                    <button type="button" class="btn btn-social" @onclick="HandleGoogleLogin">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h5.4c-.23 1.3-1.63 3.82-5.4 3.82-3.25 0-5.9-2.7-5.9-6.05s2.65-6.05 5.9-6.05c1.86 0 3.1.8 3.8 1.47l2.13-2.05C16.5 3.5 14.4 2.6 11.8 2.6 6.6 2.6 2.4 6.8 2.4 12s4.2 9.4 9.4 9.4c5.4 0 9.02-3.8 9.02-9.17 0-.67-.07-1.12-.13-1.63z" /></svg>
                         Continuer avec Google
                     </button>
-                    <!-- Bouton connecté au NavigationManager -->
-                    <button class="btn btn-social auth0" @onclick="LoginWithAuth0">
+                    <button type="button" class="btn btn-social auth0" @onclick="HandleAuth0Login">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.57 8.05c-.32-.78-.77-1.5-1.32-2.12-.55-.63-1.2-1.16-1.95-1.58-.75-.42-1.58-.73-2.48-.94-.9-.21-1.85-.31-2.82-.31-1.85 0-3.51.3-4.99.91-1.48.61-2.77 1.48-3.86 2.61-1.09 1.13-1.94 2.49-2.55 4.09-.61 1.6-.92 3.37-.92 5.31 0 1.94.31 3.71.92 5.31.61 1.6 1.46 2.96 2.55 4.09 1.09 1.13 2.38 2 3.86 2.61 1.48.61 3.14.91 4.99.91.97 0 1.92-.1 2.82-.31.9-.21 1.73-.52 2.48-.94.75-.42 1.4-.95 1.95-1.58.55-.62 1-1.34 1.32-2.12.32-.78.48-1.63.48-2.56 0-.93-.16-1.78-.48-2.56zm-9.57 9.15c-2.95 0-5.35-2.4-5.35-5.35s2.4-5.35 5.35-5.35 5.35 2.4 5.35 5.35-2.4 5.35-5.35 5.35z" /></svg>
                         Continuer avec Auth0
                     </button>
@@ -137,82 +156,444 @@
                 <div class="alert-warning" role="alert" style="display:block;">
                     ⚠️ Indiquez votre téléphone et adresse avant d'ajouter des articles.
                 </div>
-                <form>
-                    <input type="email" class="form-input" disabled value="utilisateur@email.com">
-                    <input type="text" class="form-input" required placeholder="Nom complet">
-                    <input type="tel" class="form-input" required placeholder="Numéro de téléphone">
-                    <input type="text" class="form-input" required placeholder="Adresse de livraison">
+
+                <form @onsubmit="SaveProfile">
+                    <input type="email" class="form-input" disabled @bind-value="userEmail" placeholder="Chargement de l'email...">
+                    <input type="text" class="form-input" disabled @bind-value="userName" placeholder="Chargement du nom...">
+                    <input type="tel" class="form-input" required placeholder="Numéro de téléphone" @bind-value="userPhone">
+                    <input type="text" class="form-input" required placeholder="Adresse de livraison" @bind-value="userAddress">
+
                     <button type="submit" class="btn btn-primary mt-10 mb-14 w-full">Enregistrer les modifications</button>
-                    <button type="button" class="btn btn-outline w-full" style="color:var(--danger); border-color:var(--danger);">Déconnexion</button>
+                    <button type="button" class="btn btn-outline w-full" style="color:var(--danger); border-color:var(--danger);" @onclick="HandleLogout">Déconnexion</button>
                 </form>
             </div>
         </div>
     </div>
 
     <!-- WIDGET CHAT -->
-    <button class="chat-widget-btn" @onclick="ToggleChat" aria-label="Ouvrir le chat du service client">
+    <button class="chat-widget-btn" @onclick="ToggleChat">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
     </button>
+
     <aside class="chat-window @(isChatOpen ? "open" : "")" @onclick:stopPropagation="true">
-        <header class="chat-header">
-            <span>Service Client</span>
+        <header class="chat-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <span>Service Client</span>
+                <div style="font-size:0.7rem; color:#e0f2f1; display:flex; align-items:center; gap:4px;">
+                    🔒 Chiffré de bout en bout
+                </div>
+            </div>
             <button class="close-btn" @onclick="CloseAll" style="background:transparent; color:white;">&times;</button>
         </header>
-        <div class="chat-messages" style="display: flex; flex-direction: column;">
-            <div class="msg-bubble admin mt-10">Bonjour ! Comment pouvons-nous vous aider aujourd'hui ?</div>
+
+        <div class="chat-messages" style="display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding: 15px;">
+            <div class="msg-bubble admin mt-10" style="align-self: flex-start; background-color: #fff; padding: 8px 12px; border-radius: 12px; margin-bottom: 5px; border: 1px solid #eee;">
+                Bonjour ! Comment pouvons-nous vous aider ?
+            </div>
+
+            @foreach (var msg in chatHistory)
+            {
+                <div class="msg-bubble user mt-10" style="align-self: flex-end; background-color: #dcf8c6; padding: 8px 12px; border-radius: 12px; margin-bottom: 5px; max-width: 85%;">
+                    @if (msg.IsAudio)
+                    {
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button type="button" @onclick="() => TogglePlayAudio(msg)" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--primary);">
+                                @(msg.IsPlaying ? "⏸" : "▶")
+                            </button>
+                            <div style="width: 120px; height: 5px; background: #b0d8a4; border-radius: 5px; overflow: hidden; position: relative;">
+                                <div style="width: @(msg.AudioProgress)%; height: 100%; background: var(--primary); transition: width 0.2s;"></div>
+                            </div>
+                            <span style="font-size: 0.8rem; color: #54656f;">00:@(msg.AudioDuration.ToString("D2"))</span>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrEmpty(msg.EncryptedText))
+                        {
+                            <span style="display: block; margin-bottom: 5px;">@DecryptMessage(msg.EncryptedText)</span>
+                        }
+
+                        @if (!string.IsNullOrEmpty(msg.AttachmentName))
+                        {
+                            <div style="margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                @if (!string.IsNullOrEmpty(msg.AttachmentDataUrl))
+                                {
+                                    <img src="@msg.AttachmentDataUrl" alt="@msg.AttachmentName" style="max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin-bottom: 8px;" />
+                                    <a href="@msg.AttachmentDataUrl" download="@msg.AttachmentName" target="_blank" style="display: inline-block; background: white; color: var(--primary); padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8rem; border: 1px solid var(--primary);">📥 Télécharger</a>
+                                }
+                                else
+                                {
+                                    <span style="font-size: 0.85rem; color: #54656f;">📎 @msg.AttachmentName</span>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            }
         </div>
-        <form class="chat-input-area">
-            <input type="file" accept="image/jpeg, image/jpg" hidden>
-            <button type="button" class="chat-action-btn" aria-label="Joindre une image">📎</button>
-            <input type="text" placeholder="Écrivez votre message..." autocomplete="off">
-            <button type="button" class="chat-action-btn" aria-label="Message vocal">🎤</button>
-            <button type="submit" class="chat-send-btn" aria-label="Envoyer le message">➤</button>
+
+        @if (!string.IsNullOrEmpty(selectedFileName))
+        {
+            <div class="chat-attachment-preview" style="display:flex; align-items:center; background:#e9edef; padding:8px; margin:0 10px 10px 10px; border-radius:8px;">
+                @if (!string.IsNullOrEmpty(selectedFileUrl))
+                {
+                    <img src="@selectedFileUrl" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; margin-right: 8px;" />
+                }
+                <span style="flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:0.85rem;">@selectedFileName</span>
+                <button type="button" @onclick="RemoveAttachment" style="color:red; font-weight:bold; background:none; border:none; cursor:pointer; font-size: 1.2rem;">&times;</button>
+            </div>
+        }
+
+        <form class="chat-input-area" @onsubmit="SendMessage" @onsubmit:preventDefault="true">
+            @if (isRecording)
+            {
+                <button type="button" class="chat-action-btn" style="color: #dc3545;" @onclick="CancelRecording">🗑️</button>
+                <div class="chat-text-input" style="color: #dc3545; display: flex; align-items: center; font-weight: bold; animation: pulse 1.5s infinite;">
+                    🔴 Enregistrement... 00:@(recordingSeconds.ToString("D2"))
+                </div>
+                <button type="button" class="chat-send-btn" @onclick="SendMessage">➤</button>
+            }
+            else
+            {
+                <InputFile OnChange="HandleFileUpload" hidden id="chat-file-upload" accept="image/jpeg, image/jpg, image/png, application/pdf" />
+                <label for="chat-file-upload" class="chat-action-btn">📎</label>
+
+                <input type="text" class="chat-text-input" placeholder="Message chiffré..." autocomplete="off" @bind="chatMessage" @bind:event="oninput">
+
+                @if (PlatformService.IsMaui)
+                {
+                    <button type="button" class="chat-action-btn" @onclick="StartRecording">🎤</button>
+                }
+                else
+                {
+                    <button type="button" class="chat-action-btn" @onclick="SetVoiceInfoMessage">ℹ️</button>
+                }
+                <button type="submit" class="chat-send-btn">➤</button>
+            }
         </form>
     </aside>
 </div>
 
 @code {
-    // === GESTION DE L'ÉTAT DES MODALES ===
     private bool isCartOpen = false;
     private bool isAuthOpen = false;
     private bool isProfileOpen = false;
     private bool isChatOpen = false;
 
+    private string userEmail = "";
+    private string userName = "";
+    private string userPhone = "";
+    private string userAddress = "";
+    private string authErrorMessage = "";
+
+    private readonly byte[] encryptionKey = new byte[32];
+    private readonly byte[] encryptionIv = new byte[16];
+
     protected override void OnInitialized()
     {
         CartService.OnCartChanged += StateHasChanged;
+
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(encryptionKey);
+            rng.GetBytes(encryptionIv);
+        }
     }
 
     public void Dispose()
     {
         CartService.OnCartChanged -= StateHasChanged;
+        recordingTimer?.Dispose();
+        foreach (var msg in chatHistory)
+        {
+            msg.PlaybackTimer?.Dispose();
+        }
     }
 
+    private string GetInitials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "U";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2) return $"{parts[0][0]}{parts[1][0]}".ToUpper();
+        else if (name.Length >= 2) return name.Substring(0, 2).ToUpper();
+        return name.Substring(0, 1).ToUpper();
+    }
+
+    private void ToggleChat() => isChatOpen = !isChatOpen;
+    private void CloseAll() { isChatOpen = false; isCartOpen = false; isAuthOpen = false; isProfileOpen = false; StateHasChanged(); }
     private void OpenCart() { CloseAll(); isCartOpen = true; }
     private void OpenAuth() { CloseAll(); isAuthOpen = true; }
-    private void OpenProfile() { CloseAll(); isProfileOpen = true; }
 
-    private void ToggleChat()
+    private void OpenProfile(System.Security.Claims.ClaimsPrincipal user)
     {
-        bool wasOpen = isChatOpen;
         CloseAll();
-        isChatOpen = !wasOpen;
-    }
-
-    private void CloseAll()
-    {
-        isCartOpen = false;
-        isAuthOpen = false;
-        isProfileOpen = false;
-        isChatOpen = false;
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            userName = user.Identity.Name ?? "Nom inconnu";
+            var emailClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email || c.Type == "email" || c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
+            userEmail = emailClaim?.Value ?? "utilisateur.auth0@exemple.com";
+        }
+        else
+        {
+            userEmail = "Non connecté";
+            userName = "";
+        }
+        isProfileOpen = true;
         StateHasChanged();
     }
 
-    // === GESTION DE L'AUTHENTIFICATION ===
-    private void LoginWithAuth0()
+    private async Task SaveProfile()
     {
-        // En Blazor Server, on redirige généralement vers une page /Login (Razor Page standard)
-        // qui lance le challenge HTTP vers Auth0.
-        NavManager.NavigateTo("/Login", forceLoad: true);
+        Console.WriteLine($"[Sauvegarde Profil] Téléphone: {userPhone}, Adresse: {userAddress}");
+        CloseAll();
+    }
+
+    private void HandleLogout() { AuthService.Logout(); CloseAll(); }
+
+    public class ChatMessageItem
+    {
+        public string EncryptedText { get; set; } = "";
+        public string AttachmentName { get; set; } = "";
+        public string AttachmentDataUrl { get; set; } = "";
+
+        public bool IsAudio { get; set; } = false;
+        public int AudioDuration { get; set; } = 0;
+
+        public bool IsPlaying { get; set; } = false;
+        public int AudioProgress { get; set; } = 0;
+        public System.Threading.Timer? PlaybackTimer { get; set; }
+    }
+
+    private List<ChatMessageItem> chatHistory = new();
+    private string chatMessage = "";
+    private string selectedFileName = "";
+    private string selectedFileUrl = "";
+
+    private bool isRecording = false;
+    private int recordingSeconds = 0;
+    private System.Threading.Timer? recordingTimer;
+
+    private string EncryptMessage(string plainText)
+    {
+        if (string.IsNullOrEmpty(plainText)) return "";
+        using Aes aes = Aes.Create();
+        aes.Key = encryptionKey;
+        aes.IV = encryptionIv;
+        ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
+        using MemoryStream ms = new MemoryStream();
+        using CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
+        using (StreamWriter sw = new StreamWriter(cs)) { sw.Write(plainText); }
+        return Convert.ToBase64String(ms.ToArray());
+    }
+
+    private string DecryptMessage(string cipherText)
+    {
+        if (string.IsNullOrEmpty(cipherText)) return "";
+        try
+        {
+            using Aes aes = Aes.Create();
+            aes.Key = encryptionKey;
+            aes.IV = encryptionIv;
+            ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+            using MemoryStream ms = new MemoryStream(Convert.FromBase64String(cipherText));
+            using CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
+            using StreamReader sr = new StreamReader(cs);
+            return sr.ReadToEnd();
+        }
+        catch { return "Erreur de déchiffrement"; }
+    }
+
+    private async Task SendMessage()
+    {
+        if (isRecording)
+        {
+            string? audioBase64 = null;
+            int duration = recordingSeconds;
+
+            try
+            {
+                // 1. On attend que JavaScript récupère et convertisse l'audio en Base64 en premier
+                audioBase64 = await JSRuntime.InvokeAsync<string>("audioChat.stopRecording");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erreur audio: {ex.Message}");
+            }
+
+            // 2. On coupe ensuite proprement l'état d'enregistrement et le timer
+            isRecording = false;
+            recordingTimer?.Dispose();
+            recordingSeconds = 0;
+
+            // 3. On ajoute le message vocal à l'historique s'il est valide
+            if (!string.IsNullOrEmpty(audioBase64))
+            {
+                chatHistory.Add(new ChatMessageItem
+                {
+                    IsAudio = true,
+                    AudioDuration = duration > 0 ? duration : 1,
+                    AttachmentDataUrl = audioBase64
+                });
+            }
+            else
+            {
+                chatHistory.Add(new ChatMessageItem
+                {
+                    EncryptedText = EncryptMessage("⚠️ Échec de la capture audio.")
+                });
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(chatMessage) || !string.IsNullOrEmpty(selectedFileName))
+        {
+            chatHistory.Add(new ChatMessageItem
+            {
+                EncryptedText = EncryptMessage(chatMessage),
+                AttachmentName = selectedFileName,
+                AttachmentDataUrl = selectedFileUrl
+            });
+
+            chatMessage = "";
+            selectedFileName = "";
+            selectedFileUrl = "";
+        }
+        StateHasChanged();
+    }
+
+    private async Task StartRecording()
+    {
+        try
+        {
+            bool success = await JSRuntime.InvokeAsync<bool>("audioChat.startRecording");
+            if (success)
+            {
+                isRecording = true;
+                recordingSeconds = 0;
+                recordingTimer = new System.Threading.Timer((_) => { recordingSeconds++; InvokeAsync(StateHasChanged); }, null, 1000, 1000);
+            }
+            else
+            {
+                chatHistory.Add(new ChatMessageItem { EncryptedText = EncryptMessage("Veuillez autoriser le micro dans votre navigateur.") });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("JS introuvable ou erreur de permission: " + ex.Message);
+            chatHistory.Add(new ChatMessageItem { EncryptedText = EncryptMessage("⚠️ Impossible d'activer le micro.") });
+        }
+    }
+
+    private async Task CancelRecording()
+    {
+        isRecording = false;
+        recordingTimer?.Dispose();
+        recordingSeconds = 0;
+        try { await JSRuntime.InvokeVoidAsync("audioChat.cancelRecording"); } catch { }
+        StateHasChanged();
+    }
+
+    private async Task TogglePlayAudio(ChatMessageItem msg)
+    {
+        if (msg.IsPlaying)
+        {
+            msg.IsPlaying = false;
+            msg.PlaybackTimer?.Dispose();
+        }
+        else
+        {
+            msg.IsPlaying = true;
+            if (msg.AudioProgress >= 100) msg.AudioProgress = 0;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(msg.AttachmentDataUrl))
+                    await JSRuntime.InvokeVoidAsync("audioChat.playAudio", msg.AttachmentDataUrl);
+            }
+            catch { }
+
+            int step = 100 / (msg.AudioDuration > 0 ? msg.AudioDuration : 1);
+            msg.PlaybackTimer = new System.Threading.Timer((_) =>
+            {
+                msg.AudioProgress += step;
+                if (msg.AudioProgress >= 100)
+                {
+                    msg.AudioProgress = 100;
+                    msg.IsPlaying = false;
+                    msg.PlaybackTimer?.Dispose();
+                }
+                InvokeAsync(StateHasChanged);
+            }, null, 1000, 1000);
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file != null)
+        {
+            selectedFileName = file.Name;
+            try
+            {
+                var buffer = new byte[file.Size];
+                await file.OpenReadStream(maxAllowedSize: 15000000).ReadAsync(buffer);
+                selectedFileUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+            }
+            catch (Exception ex)
+            {
+                selectedFileName = "Erreur fichier trop lourd";
+                selectedFileUrl = "";
+                Console.WriteLine(ex.Message);
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void RemoveAttachment()
+    {
+        selectedFileName = "";
+        selectedFileUrl = "";
+    }
+
+    private async Task HandleGoogleLogin()
+    {
+        try
+        {
+            authErrorMessage = "Lancement de la connexion Google...";
+            StateHasChanged();
+
+            await AuthService.LoginWithGoogleAsync();
+
+            authErrorMessage = "";
+            isAuthOpen = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            authErrorMessage = $"Erreur critique : {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleAuth0Login()
+    {
+        try
+        {
+            authErrorMessage = "Lancement de la connexion Auth0...";
+            StateHasChanged();
+
+            await AuthService.LoginWithAuth0Async();
+
+            authErrorMessage = "";
+            isAuthOpen = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            authErrorMessage = $"Erreur critique : {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    private void SetVoiceInfoMessage()
+    {
+        chatMessage = "Le chat vocal est disponible sur l'application mobile MAUI.";
     }
 }

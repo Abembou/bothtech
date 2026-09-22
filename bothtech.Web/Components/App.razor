@@ -1,23 +1,129 @@
 ﻿<!DOCTYPE html>
 <html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <base href="/" />
 
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <base href="/" />
-
-        <!-- ON NE GARDE QUE LE CSS DE LA BOUTIQUE -->
-        <link rel="stylesheet" href="_content/bothtech.Shared/css/main.css" />
-
-        <!-- CSS généré automatiquement par Blazor -->
-        <link rel="stylesheet" href="bothtech.Web.styles.css" />
-        <link rel="icon" type="image/png" href="_content/bothtech.Shared/favicon.png" />
-        <HeadOutlet @rendermode="InteractiveServer" />
-    </head>
+    <!-- CSS de la boutique -->
+    <link rel="stylesheet" href="_content/bothtech.Shared/css/main.css" />
+    <link rel="stylesheet" href="bothtech.Web.styles.css" />
+    <link rel="icon" type="image/png" href="_content/bothtech.Shared/favicon.png" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
 <body>
-    <!-- ⚠️ UN SEUL ROUTEUR : Celui de bothtech.Shared -->
+    <!-- ⚠️ UN SEUL ROUTEUR UNIQUE -->
     <bothtech.Shared.Routes @rendermode="InteractiveServer" />
 
+    <!-- 👇 SCRIPT JAVASCRIPT DU MICROPHONE -->
+    <script>
+        window.audioChat = {
+            mediaRecorder: null,
+            audioChunks: [],
+
+            startRecording: async function () {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    console.error("L'API micro est introuvable.");
+                    return false;
+                }
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                    // Utilisation d'un type MIME standard compatible avec Chrome, Edge et Firefox
+                    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                        ? 'audio/webm;codecs=opus'
+                        : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+
+                    const options = mimeType ? { mimeType: mimeType } : {};
+
+                    this.mediaRecorder = new MediaRecorder(stream, options);
+                    this.audioChunks = [];
+
+                    this.mediaRecorder.ondataavailable = event => {
+                        if (event.data && event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                        }
+                    };
+
+                    // On force le déclenchement des chunks toutes les 100ms
+                    this.mediaRecorder.start(100);
+                    return true;
+                } catch (err) {
+                    console.error("Accès au micro refusé ou erreur:", err);
+                    return false;
+                }
+            },
+
+            stopRecording: async function () {
+                return new Promise((resolve) => {
+                    if (!this.mediaRecorder || this.mediaRecorder.state === "inactive") {
+                        resolve(null);
+                        return;
+                    }
+
+                    let recorder = this.mediaRecorder;
+
+                    recorder.onstop = () => {
+                        try {
+                            const blobType = recorder.mimeType || 'audio/webm';
+                            const audioBlob = new Blob(this.audioChunks, { type: blobType });
+
+                            if (!audioBlob || audioBlob.size === 0) {
+                                resolve(null);
+                                return;
+                            }
+
+                            const reader = new FileReader();
+                            reader.readAsDataURL(audioBlob);
+                            reader.onloadend = () => {
+                                resolve(reader.result); // Renvoie la chaîne Base64 exploitable par C#
+                            };
+                            reader.onerror = () => {
+                                resolve(null);
+                            };
+                        } catch (e) {
+                            resolve(null);
+                        } finally {
+                            if (recorder.stream) {
+                                recorder.stream.getTracks().forEach(track => track.stop());
+                            }
+                        }
+                    };
+
+                    try {
+                        if (recorder.state === "recording" || recorder.state === "paused") {
+                            recorder.stop(); // Déclenche l'événement onstop ci-dessus
+                        } else {
+                            resolve(null);
+                        }
+                    } catch (e) {
+                        resolve(null);
+                    }
+                });
+            },
+
+            cancelRecording: function () {
+                try {
+                    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+                        this.mediaRecorder.stop();
+                        if (this.mediaRecorder.stream) {
+                            this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                        }
+                    }
+                } catch (e) {}
+                this.mediaRecorder = null;
+                this.audioChunks = [];
+            },
+
+            playAudio: function (base64Audio) {
+                if (base64Audio) {
+                    const audio = new Audio(base64Audio);
+                    audio.play().catch(e => console.error("Erreur de lecture audio:", e));
+                }
+            }
+        };
+    </script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

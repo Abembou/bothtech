@@ -3,9 +3,11 @@
 @using bothtech.Shared.Models
 @using bothtech.Shared.Services
 @using bothtech.Shared.Components
+@using Microsoft.AspNetCore.Components.Authorization
 @inject DatabaseService DbService
 @inject CartService CartService
 @inject SyncService SyncService
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Both Tech Burkina - Ordinateurs, Smartphones & Accessoires</PageTitle>
 
@@ -100,7 +102,6 @@
     private IEnumerable<Product> FilteredProducts => _allProducts
         // Vous pourrez décommenter cette ligne plus tard quand tout marchera
         // .Where(p => p.Active && p.Validated)
-
         .Where(p => CurrentCategory == "all" || string.Equals(p.Category, CurrentCategory, StringComparison.OrdinalIgnoreCase))
         .Where(p => string.IsNullOrWhiteSpace(SearchQuery) ||
                     (p.Name != null && p.Name.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
@@ -113,6 +114,19 @@
     private IEnumerable<Product> PaginatedProducts => FilteredProducts
         .Skip((CurrentPage - 1) * ItemsPerPage)
         .Take(ItemsPerPage);
+
+    // --- Récupération du statut B2B de l'utilisateur à l'initialisation ---
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            // Vérifie si le rôle "detaillantB2B" est attribué à l'utilisateur
+            _isUserB2B = user.IsInRole("detaillantB2B");
+        }
+    }
 
     // --- Initialisation sécurisée pour Blazor Server ---
     protected override async Task OnAfterRenderAsync(bool firstRender)

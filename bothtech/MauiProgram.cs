@@ -1,8 +1,18 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Components.Authorization;
-using System.Net.Http; // Requis pour HttpClient et HttpClientHandler
+using System.Net.Http;
 using bothtech.Services;
 using bothtech.Shared.Services;
+using Microsoft.AspNetCore.Components.WebView.Maui;
+
+using Microsoft.AspNetCore.Components.Routing;
+
+
+#if WINDOWS
+using System.Net; // Indispensable pour le serveur d'écoute
+#else
+using Microsoft.Maui.Authentication; // Pour Android/iOS
+#endif
 
 namespace bothtech
 {
@@ -11,6 +21,63 @@ namespace bothtech
         public static MauiApp CreateMauiApp()
         {
             var builder = MauiApp.CreateBuilder();
+
+#if WINDOWS
+            // 👇 L'ASTUCE EST ICI : On écrase l'URL par défaut uniquement pour Windows
+            bothtech.Shared.Services.AuthService.NativeRedirectUri = "http://localhost:8080/callback/";
+#endif
+
+            // INJECTION NATIVE
+            bothtech.Shared.Services.AuthService.NativeWebAuthenticator = async (authUrl, redirectUri) =>
+            {
+                try
+                {
+#if WINDOWS
+                    // SOLUTION FIABLE POUR WINDOWS (Serveur local 8080)
+                    using var listener = new HttpListener();
+                    listener.Prefixes.Add(redirectUri); 
+                    listener.Start();
+
+                    // Ouvre Edge ou Chrome
+                    await Launcher.Default.OpenAsync(new Uri(authUrl));
+
+                    // Attend la réponse d'Auth0
+                    var context = await listener.GetContextAsync();
+                    string codeResult = context.Request.QueryString["code"];
+
+                    // 👇 PAGE HTML AMÉLIORÉE AVEC UN BOUTON DE FERMETURE CLIQUABLE 👇
+                   // 👇 PAGE HTML PROPRE AVEC INSTRUCTION MANUELLE 👇
+                    string html = "<html><head><meta charset='utf-8'></head><body style='text-align:center; margin-top:100px; font-family:sans-serif; background-color: #f4f6f9;'>" +
+                                  "<div style='background: white; padding: 40px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>" +
+                                  "<h2 style='color: #28a745;'>Connexion MAUI réussie ! 🎉</h2>" +
+                                  "<p style='color: #6c757d; margin-bottom: 10px;'>Vous êtes connecté avec succès à BothTech.</p>" +
+                                  "<p style='color: #adb5bd; font-size: 14px;'>Vous pouvez maintenant fermer cet onglet et revenir à l'application.</p>" +
+                                  "</div></body></html>";
+
+                    byte[] buffer = System.Text.Encoding.UTF8.GetBytes(html);
+                    context.Response.ContentLength64 = buffer.Length;
+                    context.Response.OutputStream.Write(buffer, 0, buffer.Length);
+                    context.Response.OutputStream.Close();
+
+                    listener.Stop();
+                    return codeResult;
+#else
+                    // CODE NORMAL POUR ANDROID / IOS (Utilisera bothtech://callback)
+                    var result = await WebAuthenticator.Default.AuthenticateAsync(new Uri(authUrl), new Uri(redirectUri));
+                    if (result != null && result.Properties.TryGetValue("code", out string authCode))
+                    {
+                        return authCode;
+                    }
+                    return null;
+#endif
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Erreur Auth : {ex.Message}");
+                    return null;
+                }
+            };
+
             builder
                 .UseMauiApp<App>()
                 .ConfigureFonts(fonts =>
@@ -18,45 +85,32 @@ namespace bothtech
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 });
 
-            // Service spécifique à l'appareil pour le projet partagé
             builder.Services.AddSingleton<IFormFactor, FormFactor>();
-
             builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG
-            // Permet d'utiliser la touche F12 pour ouvrir la console dans l'appli Windows
             builder.Services.AddBlazorWebViewDeveloperTools();
             builder.Logging.AddDebug();
 #endif
 
-            // ============================================================
-            // CONFIGURATION HTTP (Ajoutée pour corriger l'écran Loading...)
-            // ============================================================
+            //builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri("https://localhost") });
+            //// Plus besoin de pointer vers https://localhost pour MAUI
+            builder.Services.AddScoped(sp => new HttpClient());
 
-            // 1. HttpClient de base pour les requêtes génériques
-            builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri("https://localhost") });
-
-            // 2. Client HTTP permissif spécifique pour Firebase
+            // Le client Firebase configuré pour dialoguer directement avec Firebase
             builder.Services.AddHttpClient("FirebaseClient")
                 .ConfigurePrimaryHttpMessageHandler(() =>
                 {
                     return new HttpClientHandler
                     {
-                        // Accepte tous les certificats (utile en dev local)
                         ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
                     };
                 });
-
-            // ============================================================
-            // SERVICES MÉTIER
-            // ============================================================
-
-            // L'ordre compte : Firebase d'abord, puis DatabaseService
+          
             builder.Services.AddSingleton<FirebaseService>();
             builder.Services.AddSingleton<DatabaseService>();
             builder.Services.AddSingleton<CartService>();
-
-            // 3. Déclaration correcte du SyncService utilisant la Factory
+            builder.Services.AddSingleton<IPlatformService>(new PlatformService(true));
             builder.Services.AddScoped<SyncService>(sp =>
             {
                 var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
@@ -64,18 +118,11 @@ namespace bothtech
                 return new SyncService(httpClientFactory.CreateClient("FirebaseClient"), dbService);
             });
 
-            // ============================================================
-            // SÉCURITÉ ET AUTHENTIFICATION
-            // ============================================================
-            builder.Services.AddAuthorizationCore(); // Active <AuthorizeView>
-
-            // Fournisseur d'identité personnalisé
+            builder.Services.AddAuthorizationCore();
             builder.Services.AddScoped<CustomAuthStateProvider>();
             builder.Services.AddScoped<AuthenticationStateProvider>(provider => provider.GetRequiredService<CustomAuthStateProvider>());
-
-            // Service de connexion
             builder.Services.AddScoped<AuthService>();
-
+          
             return builder.Build();
         }
     }

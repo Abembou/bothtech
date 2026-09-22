@@ -1,14 +1,35 @@
 ﻿@using bothtech.Shared.Layout
 
-<Router AppAssembly="@typeof(MainLayout).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-    <NotFound>
-        <PageTitle>Introuvable</PageTitle>
-        <LayoutView Layout="@typeof(MainLayout)">
-            <p role="alert" style="padding: 50px; text-align: center;">Désolé, il n'y a rien à cette adresse.</p>
-        </LayoutView>
-    </NotFound>
-</Router>
+<!-- Englobe toute l'application pour fournir l'état d'authentification -->
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(MainLayout).Assembly">
+        <Found Context="routeData">
+
+            <!-- Remplace RouteView par AuthorizeRouteView -->
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <!-- Si non connecté, on le renvoie discrètement vers /login -->
+                        <bothtech.Shared.Components.RedirectToLogin />
+                    }
+                    else
+                    {
+                        <!-- S'il est connecté mais n'a pas le bon rôle (ex: B2B vs Admin) -->
+                        <p style="padding: 50px; text-align: center; color: red;">
+                            Vous n'avez pas les droits pour accéder à cette page.
+                        </p>
+                    }
+                </NotAuthorized>
+            </AuthorizeRouteView>
+
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Introuvable</PageTitle>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <p role="alert" style="padding: 50px; text-align: center;">Désolé, il n'y a rien à cette adresse.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
