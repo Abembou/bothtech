@@ -1,7 +1,8 @@
-using Microsoft.AspNetCore.Components.Authorization;
 using bothtech.Shared.Services;
 using bothtech.Web.Components;
 using bothtech.Web.Services;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.StaticFiles;
 
 // 1. CONSTRUCTEUR SERVEUR
 var builder = WebApplication.CreateBuilder(args);
@@ -74,5 +75,17 @@ app.MapRazorComponents<App>()
     // Indique au serveur web de charger toutes les pages de bothtech.Shared
     .AddAdditionalAssemblies(typeof(bothtech.Shared.Services.DatabaseService).Assembly);
 
+
+// ... (le reste de votre code Program.cs) ...
+
+// Remplacer "app.UseStaticFiles();" par :
+var provider = new FileExtensionContentTypeProvider();
+// Ajoute le type MIME officiel pour les applications Android
+provider.Mappings[".apk"] = "application/vnd.android.package-archive";
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = provider
+});
 // Lancement du serveur
 app.Run();
