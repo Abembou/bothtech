@@ -8,6 +8,7 @@
 @using System.Security.Cryptography
 @using System.Text
 @using System.IO
+@inject FirebaseService FirebaseService
 
 @inject CartService CartService
 @inject NavigationManager NavManager
@@ -15,6 +16,31 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
 @inject IPlatformService PlatformService
+
+<!-- ✅ STYLE AJOUTÉ : Force le panier et le chat à avoir exactement la même taille (Panneau latéral) -->
+<style>
+    .cart-drawer-panel, .chat-window {
+        width: 100vw !important;
+        max-width: 400px !important; /* Largeur commune */
+        height: 100vh !important; /* Hauteur commune (tout l'écran) */
+        max-height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        border-radius: 0 !important; /* Supprime les bords arrondis flottants du chat */
+        background-color: white !important;
+        box-shadow: -4px 0 15px rgba(0,0,0,0.1) !important;
+        z-index: 1001 !important;
+    }
+
+        /* Animation de masquage si les classes CSS externes le gèrent différemment */
+        .chat-window:not(.open) {
+            transform: translateX(100%) !important;
+        }
+</style>
 
 <div>
     <!-- EN-TÊTE GLOBAL -->
@@ -32,12 +58,18 @@
                     <span class="brand-text">Both Tech Burkina</span>
                 </a>
                 <div class="header-actions">
+                    @if (userRole == "maintenance" || userRole == "admin")
+                    {
+                        <button class="btn-outline admin-nav-btn" @onclick="GoToAdminStock" aria-label="Console d'administration" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-weight: bold; border: 1px solid var(--primary); color: var(--primary); cursor: pointer; background: transparent;">
+                            <span class="icon" aria-hidden="true">🛠️</span>
+                            <span class="hide-text-mobile">Admin</span>
+                        </button>
+                    }
 
-                    <!-- VÉRIFICATION DE LA CONNEXION POUR L'AVATAR -->
                     <AuthorizeView>
                         <Authorized>
-                            <button class="btn-outline admin-nav-btn user-avatar-btn" @onclick="() => OpenProfile(context.User)" aria-label="Mon profil" title="@context.User.Identity?.Name">
-                                <span class="user-initials">@GetInitials(context.User.Identity?.Name)</span>
+                            <button class="btn-outline admin-nav-btn user-avatar-btn" @onclick="OpenProfile" aria-label="Mon profil" title="@userName">
+                                <span class="user-initials">@GetInitials(userName)</span>
                             </button>
                         </Authorized>
                         <NotAuthorized>
@@ -48,7 +80,6 @@
                         </NotAuthorized>
                     </AuthorizeView>
 
-                    <!-- Bouton Panier Dynamique -->
                     <button class="cart-trigger-btn" @onclick="OpenCart" aria-label="Ouvrir le panier">
                         <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
                         @if (CartService.GetItemCount() > 0)
@@ -61,7 +92,23 @@
         </nav>
     </header>
 
-    <main class="main-content" style="padding: 0;">
+    <!-- BOUTON TÉLÉCHARGEMENT ANDROID CENTRÉ -->
+    @if (!PlatformService.IsMaui)
+    {
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px; background-color: #f8f9fa; border-bottom: 1px solid #eee;">
+            <a href="/bothtech.apk" download="BothTech_Burkina.apk" class="btn btn-success" style="background-color: #25d366; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: fit-content;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4483-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993.0001.5511-.4482.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.2536 13.8533 7.8 12 7.8s-3.5902.4536-5.1367 1.1503l-2.0224-3.503a.4159.4159 0 00-.5676-.1521.4159.4159 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3431-4.1021-2.6892-7.5743-6.1185-9.4396"></path>
+                </svg>
+                Télécharger l'application Android
+            </a>
+            <p style="font-size: 0.85rem; color: #666; margin-top: 8px; text-align: center;">
+                *Nécessite d'autoriser l'installation d'applications inconnues
+            </p>
+        </div>
+    }
+
+    <main class="main-content" style="padding: 0; padding-bottom: 50px;">
         @Body
     </main>
 
@@ -73,7 +120,7 @@
                 <span id="cartTitle">Ma Sélection</span>
                 <button class="close-btn" @onclick="CloseAll">&times;</button>
             </header>
-            <div class="cart-items" id="cartItemsContainer">
+            <div class="cart-items" style="flex: 1; overflow-y: auto;">
                 @if (!CartService.CartItems.Any())
                 {
                     <p style="text-align: center; padding: 20px; color: var(--text-muted);">Votre panier est vide.</p>
@@ -105,9 +152,14 @@
             <footer class="cart-footer">
                 <div class="cart-total-row">
                     <span>Total</span>
-                    <span id="cartTotalPrice">@CartService.GetTotal().ToString("N0") FCFA</span>
+                    <span>@CartService.GetTotal().ToString("N0") FCFA</span>
                 </div>
-                <button class="btn btn-primary w-full" disabled="@(!CartService.CartItems.Any())" style="background:#25d366; border:none;">Valider la commande (WhatsApp)</button>
+                <button class="btn btn-primary w-full"
+                        disabled="@(!CartService.CartItems.Any() || isSubmittingOrder)"
+                        style="background: var(--primary); border: none; padding: 12px; font-weight: bold;"
+                        @onclick="SubmitOrderDirectly">
+                    @(isSubmittingOrder ? "Transmission en cours..." : "Valider la commande")
+                </button>
             </footer>
         </div>
     </aside>
@@ -121,12 +173,12 @@
             </header>
             <div class="modal-body">
                 <p class="text-center text-muted mb-24" style="line-height: 1.5; font-size: 0.95rem;">
-                    Connectez-vous ou créez un compte en un clic pour sauvegarder vos préférences.
+                    Connectez-vous avec votre compte sécurisé. S'il n'existe pas, il sera créé automatiquement.
                 </p>
 
                 @if (!string.IsNullOrEmpty(authErrorMessage))
                 {
-                    <div class="alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem; border: 1px solid #f5c6cb;">
+                    <div class="alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem;">
                         @authErrorMessage
                     </div>
                 }
@@ -149,129 +201,144 @@
     <div class="modal-overlay @(isProfileOpen ? "open" : "")" @onclick="CloseAll">
         <div class="modal-card" @onclick:stopPropagation="true">
             <header class="modal-header">
-                <h3>Mon profil</h3>
-                <button class="close-btn" @onclick="CloseAll">&times;</button>
+                <h3>Mon profil & Livraison</h3>
+                @if (!IsProfileIncomplete)
+                {
+                    <button class="close-btn" @onclick="CloseAll">&times;</button>
+                }
             </header>
             <div class="modal-body">
-                <div class="alert-warning" role="alert" style="display:block;">
-                    ⚠️ Indiquez votre téléphone et adresse avant d'ajouter des articles.
-                </div>
+                @if (IsProfileIncomplete)
+                {
+                    <div class="alert-danger" role="alert" style="display:block; background:#f8d7da; color:#721c24; padding:10px; border-radius:6px; font-size:0.85rem; margin-bottom:12px; font-weight:bold;">
+                        ⚠ Vous devez obligatoirement renseigner votre téléphone et votre adresse pour utiliser l'application.
+                    </div>
+                }
+                else
+                {
+                    <div class="alert-warning" role="alert" style="display:block; background:#fef3c7; color:#92400e; padding:10px; border-radius:6px; font-size:0.85rem; margin-bottom:12px;">
+                        💡 Gardez vos informations de livraison à jour.
+                    </div>
+                }
 
-                <form @onsubmit="SaveProfile">
-                    <input type="email" class="form-input" disabled @bind-value="userEmail" placeholder="Chargement de l'email...">
-                    <input type="text" class="form-input" disabled @bind-value="userName" placeholder="Chargement du nom...">
-                    <input type="tel" class="form-input" required placeholder="Numéro de téléphone" @bind-value="userPhone">
-                    <input type="text" class="form-input" required placeholder="Adresse de livraison" @bind-value="userAddress">
+                <form @onsubmit="SaveProfile" @onsubmit:preventDefault="true">
+                    <label style="font-size: 0.8rem; font-weight: bold; color: var(--gray-600);">Email (Compte)</label>
+                    <input type="email" class="form-input" disabled @bind-value="userEmail" placeholder="Chargement...">
 
-                    <button type="submit" class="btn btn-primary mt-10 mb-14 w-full">Enregistrer les modifications</button>
-                    <button type="button" class="btn btn-outline w-full" style="color:var(--danger); border-color:var(--danger);" @onclick="HandleLogout">Déconnexion</button>
+                    <label style="font-size: 0.8rem; font-weight: bold; color: var(--gray-600);">Nom complet</label>
+                    <input type="text" class="form-input" disabled @bind-value="userName" placeholder="Chargement...">
+
+                    <label style="font-size: 0.8rem; font-weight: bold; color: var(--gray-600);">Téléphone (WhatsApp / Appel) *</label>
+                    <input type="tel" class="form-input" required placeholder="Ex: +226 70 00 00 00" @bind-value="userPhone">
+
+                    <label style="font-size: 0.8rem; font-weight: bold; color: var(--gray-600);">Adresse de livraison *</label>
+                    <input type="text" class="form-input" required placeholder="Ex: Ouagadougou, Ouaga 2000" @bind-value="userAddress">
+
+                    <button type="submit" class="btn btn-primary mt-10 mb-14 w-full" disabled="@IsProfileIncomplete">Enregistrer et Continuer</button>
+
+                    <button type="button" class="btn btn-outline w-full" style="color:var(--danger); border-color:var(--danger);" @onclick="HandleLogout">Se déconnecter</button>
                 </form>
             </div>
         </div>
     </div>
 
     <!-- WIDGET CHAT -->
-    <button class="chat-widget-btn" @onclick="ToggleChat">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
-    </button>
-
-    <aside class="chat-window @(isChatOpen ? "open" : "")" @onclick:stopPropagation="true">
-        <header class="chat-header" style="display:flex; justify-content:space-between; align-items:center;">
-            <div>
-                <span>Service Client</span>
-                <div style="font-size:0.7rem; color:#e0f2f1; display:flex; align-items:center; gap:4px;">
-                    🔒 Chiffré de bout en bout
-                </div>
-            </div>
-            <button class="close-btn" @onclick="CloseAll" style="background:transparent; color:white;">&times;</button>
-        </header>
-
-        <div class="chat-messages" style="display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding: 15px;">
-            <div class="msg-bubble admin mt-10" style="align-self: flex-start; background-color: #fff; padding: 8px 12px; border-radius: 12px; margin-bottom: 5px; border: 1px solid #eee;">
-                Bonjour ! Comment pouvons-nous vous aider ?
-            </div>
-
-            @foreach (var msg in chatHistory)
+    <AuthorizeView>
+        <Authorized>
+            <!-- ✅ AJOUT : Le bouton est masqué si isCartOpen est vrai -->
+            @if (!isCartOpen)
             {
-                <div class="msg-bubble user mt-10" style="align-self: flex-end; background-color: #dcf8c6; padding: 8px 12px; border-radius: 12px; margin-bottom: 5px; max-width: 85%;">
-                    @if (msg.IsAudio)
+                <button class="chat-widget-btn" @onclick="ToggleChat">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path></svg>
+                </button>
+            }
+
+            <aside class="chat-window @(isChatOpen ? "open" : "")" @onclick:stopPropagation="true">
+                <header class="chat-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div><span>Service Client</span><div style="font-size:0.7rem; color:#e0f2f1;">🔒 Chiffré de bout en bout</div></div>
+                    <button class="close-btn" @onclick="CloseAll" style="background:transparent; color:white;">&times;</button>
+                </header>
+                <div class="chat-messages" style="display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding: 15px;">
+                    <div class="msg-bubble admin mt-10" style="align-self: flex-start; background-color: #fff; padding: 8px 12px; border-radius: 12px; margin-bottom: 5px; border: 1px solid #eee;">
+                        Bonjour ! Votre commande a bien été transmise. Comment pouvons-nous vous aider ?
+                    </div>
+                    @foreach (var msg in chatHistory)
                     {
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <button type="button" @onclick="() => TogglePlayAudio(msg)" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--primary);">
-                                @(msg.IsPlaying ? "⏸" : "▶")
-                            </button>
-                            <div style="width: 120px; height: 5px; background: #b0d8a4; border-radius: 5px; overflow: hidden; position: relative;">
-                                <div style="width: @(msg.AudioProgress)%; height: 100%; background: var(--primary); transition: width 0.2s;"></div>
-                            </div>
-                            <span style="font-size: 0.8rem; color: #54656f;">00:@(msg.AudioDuration.ToString("D2"))</span>
+                        <div class="msg-bubble user mt-10" style="align-self: flex-end; background-color: #dcf8c6; padding: 8px 12px; border-radius: 12px; margin-bottom: 5px; max-width: 85%;">
+                            @if (msg.IsAudio)
+                            {
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <button type="button" @onclick="() => TogglePlayAudio(msg)" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--primary);">
+                                        @(msg.IsPlaying ? "⏸" : "▶")
+                                    </button>
+                                    <div style="width: 120px; height: 5px; background: #b0d8a4; border-radius: 5px; overflow: hidden; position: relative;">
+                                        <div style="width: @(msg.AudioProgress)%; height: 100%; background: var(--primary); transition: width 0.2s;"></div>
+                                    </div>
+                                    <span style="font-size: 0.8rem; color: #54656f;">00:@(msg.AudioDuration.ToString("D2"))</span>
+                                </div>
+                            }
+                            else
+                            {
+                                @if (!string.IsNullOrEmpty(msg.EncryptedText))
+                                {
+                                    <span style="display: block; margin-bottom: 5px;">@DecryptMessage(msg.EncryptedText)</span>
+                                }
+                                @if (!string.IsNullOrEmpty(msg.AttachmentName))
+                                {
+                                    <div style="margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                        @if (!string.IsNullOrEmpty(msg.AttachmentDataUrl))
+                                        {
+                                            <img src="@msg.AttachmentDataUrl" alt="@msg.AttachmentName" style="max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin-bottom: 8px;" />
+                                        }
+                                        else
+                                        {
+                                            <span style="font-size: 0.85rem; color: #54656f;">📎 @msg.AttachmentName</span>
+                                        }
+                                    </div>
+                                }
+                            }
                         </div>
+                    }
+                </div>
+
+                @if (!string.IsNullOrEmpty(selectedFileName))
+                {
+                    <div class="chat-attachment-preview" style="display:flex; align-items:center; background:#e9edef; padding:8px; margin:0 10px 10px 10px; border-radius:8px;">
+                        @if (!string.IsNullOrEmpty(selectedFileUrl))
+                        {
+                            <img src="@selectedFileUrl" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; margin-right: 8px;" />
+                        }
+                        <span style="flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:0.85rem;">@selectedFileName</span>
+                        <button type="button" @onclick="RemoveAttachment" style="color:red; font-weight:bold; background:none; border:none; cursor:pointer; font-size: 1.2rem;">&times;</button>
+                    </div>
+                }
+
+                <form class="chat-input-area" @onsubmit="SendMessage" @onsubmit:preventDefault="true">
+                    @if (isRecording)
+                    {
+                        <button type="button" class="chat-action-btn" style="color: #dc3545;" @onclick="CancelRecording">🗑️</button>
+                        <div class="chat-text-input" style="color: #dc3545; display: flex; align-items: center; font-weight: bold; animation: pulse 1.5s infinite;">🔴 00:@(recordingSeconds.ToString("D2"))</div>
+                        <button type="button" class="chat-send-btn" @onclick="SendMessage">➤</button>
                     }
                     else
                     {
-                        @if (!string.IsNullOrEmpty(msg.EncryptedText))
+                        <InputFile OnChange="HandleFileUpload" hidden id="chat-file-upload" accept="image/jpeg, image/jpg, image/png, application/pdf" />
+                        <label for="chat-file-upload" class="chat-action-btn">📎</label>
+                        <input type="text" class="chat-text-input" placeholder="Message chiffré..." autocomplete="off" @bind="chatMessage" @bind:event="oninput">
+                        @if (PlatformService.IsMaui)
                         {
-                            <span style="display: block; margin-bottom: 5px;">@DecryptMessage(msg.EncryptedText)</span>
+                            <button type="button" class="chat-action-btn" @onclick="StartRecording">🎤</button>
                         }
-
-                        @if (!string.IsNullOrEmpty(msg.AttachmentName))
+                        else
                         {
-                            <div style="margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(0,0,0,0.1);">
-                                @if (!string.IsNullOrEmpty(msg.AttachmentDataUrl))
-                                {
-                                    <img src="@msg.AttachmentDataUrl" alt="@msg.AttachmentName" style="max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin-bottom: 8px;" />
-                                    <a href="@msg.AttachmentDataUrl" download="@msg.AttachmentName" target="_blank" style="display: inline-block; background: white; color: var(--primary); padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8rem; border: 1px solid var(--primary);">📥 Télécharger</a>
-                                }
-                                else
-                                {
-                                    <span style="font-size: 0.85rem; color: #54656f;">📎 @msg.AttachmentName</span>
-                                }
-                            </div>
+                            <button type="button" class="chat-action-btn" @onclick="SetVoiceInfoMessage">ℹ️</button>
                         }
+                        <button type="submit" class="chat-send-btn">➤</button>
                     }
-                </div>
-            }
-        </div>
-
-        @if (!string.IsNullOrEmpty(selectedFileName))
-        {
-            <div class="chat-attachment-preview" style="display:flex; align-items:center; background:#e9edef; padding:8px; margin:0 10px 10px 10px; border-radius:8px;">
-                @if (!string.IsNullOrEmpty(selectedFileUrl))
-                {
-                    <img src="@selectedFileUrl" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; margin-right: 8px;" />
-                }
-                <span style="flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:0.85rem;">@selectedFileName</span>
-                <button type="button" @onclick="RemoveAttachment" style="color:red; font-weight:bold; background:none; border:none; cursor:pointer; font-size: 1.2rem;">&times;</button>
-            </div>
-        }
-
-        <form class="chat-input-area" @onsubmit="SendMessage" @onsubmit:preventDefault="true">
-            @if (isRecording)
-            {
-                <button type="button" class="chat-action-btn" style="color: #dc3545;" @onclick="CancelRecording">🗑️</button>
-                <div class="chat-text-input" style="color: #dc3545; display: flex; align-items: center; font-weight: bold; animation: pulse 1.5s infinite;">
-                    🔴 Enregistrement... 00:@(recordingSeconds.ToString("D2"))
-                </div>
-                <button type="button" class="chat-send-btn" @onclick="SendMessage">➤</button>
-            }
-            else
-            {
-                <InputFile OnChange="HandleFileUpload" hidden id="chat-file-upload" accept="image/jpeg, image/jpg, image/png, application/pdf" />
-                <label for="chat-file-upload" class="chat-action-btn">📎</label>
-
-                <input type="text" class="chat-text-input" placeholder="Message chiffré..." autocomplete="off" @bind="chatMessage" @bind:event="oninput">
-
-                @if (PlatformService.IsMaui)
-                {
-                    <button type="button" class="chat-action-btn" @onclick="StartRecording">🎤</button>
-                }
-                else
-                {
-                    <button type="button" class="chat-action-btn" @onclick="SetVoiceInfoMessage">ℹ️</button>
-                }
-                <button type="submit" class="chat-send-btn">➤</button>
-            }
-        </form>
-    </aside>
+                </form>
+            </aside>
+        </Authorized>
+    </AuthorizeView>
 </div>
 
 @code {
@@ -279,19 +346,25 @@
     private bool isAuthOpen = false;
     private bool isProfileOpen = false;
     private bool isChatOpen = false;
+    private bool isSubmittingOrder = false;
 
     private string userEmail = "";
     private string userName = "";
     private string userPhone = "";
     private string userAddress = "";
+    private string userRole = "client";
     private string authErrorMessage = "";
 
-    private readonly byte[] encryptionKey = new byte[32];
-    private readonly byte[] encryptionIv = new byte[16];
+    // Clé secrète fixe (32 octets) et Vecteur d'initialisation (16 octets) partagés avec l'Admin
+    private readonly byte[] encryptionKey = System.Text.Encoding.UTF8.GetBytes("BothTechSecretKeyForChat2026!@#$");
+    private readonly byte[] encryptionIv = System.Text.Encoding.UTF8.GetBytes("BothTechInitVect");
+
+    private bool IsProfileIncomplete => string.IsNullOrWhiteSpace(userPhone) || string.IsNullOrWhiteSpace(userAddress);
 
     protected override void OnInitialized()
     {
         CartService.OnCartChanged += StateHasChanged;
+        AuthStateProvider.AuthenticationStateChanged += HandleAuthStateChanged;
 
         using (var rng = RandomNumberGenerator.Create())
         {
@@ -300,108 +373,220 @@
         }
     }
 
-    public void Dispose()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        CartService.OnCartChanged -= StateHasChanged;
-        recordingTimer?.Dispose();
-        foreach (var msg in chatHistory)
+        if (firstRender)
         {
-            msg.PlaybackTimer?.Dispose();
+            try
+            {
+                string savedEmail = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_useremail") ?? "";
+
+                if (!string.IsNullOrEmpty(savedEmail) && !AuthService.IsAuthenticated)
+                {
+                    string savedName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_username") ?? "Client BothTech";
+                    userPhone = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userphone") ?? "";
+                    userAddress = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_useraddress") ?? "";
+
+                    string savedRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client";
+                    userRole = savedRole.ToLower().Trim();
+
+                    if (userRole != "client" && userRole != "detaillant" && userRole != "maintenance")
+                    {
+                        NavManager.NavigateTo("/stock", true);
+                        return;
+                    }
+
+                    var user = new User
+                    {
+                        Email = savedEmail,
+                        Name = savedName,
+                        Role = userRole,
+                        FirebaseUid = ""
+                    };
+
+                    AuthService.RestoreSession(user);
+
+                    if (IsProfileIncomplete)
+                    {
+                        isProfileOpen = true;
+                    }
+
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Erreur OnAfterRender : {ex.Message}");
+            }
         }
     }
 
-    private string GetInitials(string name)
+    private async void HandleAuthStateChanged(Task<AuthenticationState> task)
     {
-        if (string.IsNullOrWhiteSpace(name)) return "U";
-        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2) return $"{parts[0][0]}{parts[1][0]}".ToUpper();
-        else if (name.Length >= 2) return name.Substring(0, 2).ToUpper();
-        return name.Substring(0, 1).ToUpper();
-    }
-
-    private void ToggleChat() => isChatOpen = !isChatOpen;
-    private void CloseAll() { isChatOpen = false; isCartOpen = false; isAuthOpen = false; isProfileOpen = false; StateHasChanged(); }
-    private void OpenCart() { CloseAll(); isCartOpen = true; }
-    private void OpenAuth() { CloseAll(); isAuthOpen = true; }
-
-    private void OpenProfile(System.Security.Claims.ClaimsPrincipal user)
-    {
-        CloseAll();
-        if (user.Identity != null && user.Identity.IsAuthenticated)
+        var authState = await task;
+        if (authState.User.Identity != null && authState.User.Identity.IsAuthenticated)
         {
-            userName = user.Identity.Name ?? "Nom inconnu";
-            var emailClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email || c.Type == "email" || c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
-            userEmail = emailClaim?.Value ?? "utilisateur.auth0@exemple.com";
+            await LoadUserProfile(authState.User);
         }
         else
         {
-            userEmail = "Non connecté";
+            userEmail = "";
             userName = "";
+            userRole = "client";
+            isProfileOpen = false;
         }
-        isProfileOpen = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadUserProfile(System.Security.Claims.ClaimsPrincipal user)
+    {
+        userName = user.Identity?.Name ?? "Client BothTech";
+        var emailClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email || c.Type == "email");
+        userEmail = emailClaim?.Value ?? "client@bothtech.bf";
+
+        var roleClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Role || c.Type == "role");
+        if (roleClaim != null && !string.IsNullOrEmpty(roleClaim.Value))
+        {
+            userRole = roleClaim.Value.ToLower().Trim();
+        }
+        else
+        {
+            try
+            {
+                string savedRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole");
+                if (!string.IsNullOrEmpty(savedRole))
+                {
+                    userRole = savedRole.ToLower().Trim();
+                }
+            }
+            catch
+            {
+                if (string.IsNullOrEmpty(userRole))
+                {
+                    userRole = "client";
+                }
+            }
+        }
+
+        await SaveUserToLocalStorage();
+
+        if (IsProfileIncomplete)
+        {
+            isAuthOpen = false;
+            isProfileOpen = true;
+        }
+
         StateHasChanged();
     }
 
+    private async Task SaveUserToLocalStorage()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_useremail", userEmail);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_username", userName);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_userphone", userPhone);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_useraddress", userAddress);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_userrole", userRole);
+        }
+        catch { }
+    }
+
+    private void GoToAdminStock()
+    {
+        if (userRole == "maintenance" || userRole == "admin")
+        {
+            NavManager.NavigateTo("/stock", true);
+        }
+    }
+
+    public void Dispose()
+    {
+        CartService.OnCartChanged -= StateHasChanged;
+        AuthStateProvider.AuthenticationStateChanged -= HandleAuthStateChanged;
+        recordingTimer?.Dispose();
+        foreach (var msg in chatHistory) msg.PlaybackTimer?.Dispose();
+    }
+
+    private string GetInitials(string name) { if (string.IsNullOrWhiteSpace(name)) return "U"; return name.Substring(0, 1).ToUpper(); }
+
+    private void ToggleChat() => isChatOpen = !isChatOpen;
+
+    private void CloseAll()
+    {
+        if (isProfileOpen && IsProfileIncomplete && AuthService.IsAuthenticated)
+        {
+            return;
+        }
+
+        isChatOpen = false;
+        isCartOpen = false;
+        isAuthOpen = false;
+        isProfileOpen = false;
+        StateHasChanged();
+    }
+
+    private void OpenCart() { CloseAll(); isCartOpen = true; }
+    private void OpenAuth() { CloseAll(); isAuthOpen = true; }
+    private void OpenProfile() { CloseAll(); isProfileOpen = true; StateHasChanged(); }
+
     private async Task SaveProfile()
     {
-        Console.WriteLine($"[Sauvegarde Profil] Téléphone: {userPhone}, Adresse: {userAddress}");
+        if (IsProfileIncomplete) return;
+
+        await SaveUserToLocalStorage();
+
+        try
+        {
+            string uid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+            string token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+            if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(token))
+            {
+                await FirebaseService.UpdateUserProfileAsync(uid, userEmail, userPhone, userAddress, token);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Erreur lors de la synchro profil : {ex.Message}");
+        }
+
+        isProfileOpen = false;
         CloseAll();
     }
 
-    private void HandleLogout() { AuthService.Logout(); CloseAll(); }
-
-    public class ChatMessageItem
+    private async Task HandleLogout()
     {
-        public string EncryptedText { get; set; } = "";
-        public string AttachmentName { get; set; } = "";
-        public string AttachmentDataUrl { get; set; } = "";
+        AuthService.Logout();
+        userRole = "client";
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_useremail");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_username");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_userphone");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_useraddress");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_userrole");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_userid");
+            await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_idtoken");
+        }
+        catch { }
 
-        public bool IsAudio { get; set; } = false;
-        public int AudioDuration { get; set; } = 0;
-
-        public bool IsPlaying { get; set; } = false;
-        public int AudioProgress { get; set; } = 0;
-        public System.Threading.Timer? PlaybackTimer { get; set; }
+        isProfileOpen = false;
+        CloseAll();
     }
+
+    public class ChatMessageItem { public string EncryptedText { get; set; } = ""; public string AttachmentName { get; set; } = ""; public string AttachmentDataUrl { get; set; } = ""; public bool IsAudio { get; set; } = false; public int AudioDuration { get; set; } = 0; public bool IsPlaying { get; set; } = false; public int AudioProgress { get; set; } = 0; public System.Threading.Timer? PlaybackTimer { get; set; } }
 
     private List<ChatMessageItem> chatHistory = new();
     private string chatMessage = "";
     private string selectedFileName = "";
     private string selectedFileUrl = "";
-
     private bool isRecording = false;
     private int recordingSeconds = 0;
     private System.Threading.Timer? recordingTimer;
 
-    private string EncryptMessage(string plainText)
-    {
-        if (string.IsNullOrEmpty(plainText)) return "";
-        using Aes aes = Aes.Create();
-        aes.Key = encryptionKey;
-        aes.IV = encryptionIv;
-        ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
-        using MemoryStream ms = new MemoryStream();
-        using CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
-        using (StreamWriter sw = new StreamWriter(cs)) { sw.Write(plainText); }
-        return Convert.ToBase64String(ms.ToArray());
-    }
-
-    private string DecryptMessage(string cipherText)
-    {
-        if (string.IsNullOrEmpty(cipherText)) return "";
-        try
-        {
-            using Aes aes = Aes.Create();
-            aes.Key = encryptionKey;
-            aes.IV = encryptionIv;
-            ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
-            using MemoryStream ms = new MemoryStream(Convert.FromBase64String(cipherText));
-            using CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
-            using StreamReader sr = new StreamReader(cs);
-            return sr.ReadToEnd();
-        }
-        catch { return "Erreur de déchiffrement"; }
-    }
+    private string EncryptMessage(string plainText) { if (string.IsNullOrEmpty(plainText)) return ""; using Aes aes = Aes.Create(); aes.Key = encryptionKey; aes.IV = encryptionIv; ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV); using MemoryStream ms = new MemoryStream(); using CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write); using (StreamWriter sw = new StreamWriter(cs)) { sw.Write(plainText); } return Convert.ToBase64String(ms.ToArray()); }
+    private string DecryptMessage(string cipherText) { if (string.IsNullOrEmpty(cipherText)) return ""; try { using Aes aes = Aes.Create(); aes.Key = encryptionKey; aes.IV = encryptionIv; ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV); using MemoryStream ms = new MemoryStream(Convert.FromBase64String(cipherText)); using CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read); using StreamReader sr = new StreamReader(cs); return sr.ReadToEnd(); } catch { return "Erreur de déchiffrement"; } }
 
     private async Task SendMessage()
     {
@@ -410,22 +595,23 @@
             string? audioBase64 = null;
             int duration = recordingSeconds;
 
-            try
-            {
-                // 1. On attend que JavaScript récupère et convertisse l'audio en Base64 en premier
-                audioBase64 = await JSRuntime.InvokeAsync<string>("audioChat.stopRecording");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erreur audio: {ex.Message}");
-            }
-
-            // 2. On coupe ensuite proprement l'état d'enregistrement et le timer
             isRecording = false;
             recordingTimer?.Dispose();
             recordingSeconds = 0;
 
-            // 3. On ajoute le message vocal à l'historique s'il est valide
+            try
+            {
+                chatMessage = "Traitement de l'audio...";
+                StateHasChanged();
+
+                audioBase64 = await JSRuntime.InvokeAsync<string>("audioChat.stopRecording");
+                chatMessage = "";
+            }
+            catch (Exception ex)
+            {
+                chatMessage = "Erreur création audio: " + ex.Message;
+            }
+
             if (!string.IsNullOrEmpty(audioBase64))
             {
                 chatHistory.Add(new ChatMessageItem
@@ -433,13 +619,6 @@
                     IsAudio = true,
                     AudioDuration = duration > 0 ? duration : 1,
                     AttachmentDataUrl = audioBase64
-                });
-            }
-            else
-            {
-                chatHistory.Add(new ChatMessageItem
-                {
-                    EncryptedText = EncryptMessage("⚠️ Échec de la capture audio.")
                 });
             }
         }
@@ -451,11 +630,11 @@
                 AttachmentName = selectedFileName,
                 AttachmentDataUrl = selectedFileUrl
             });
-
             chatMessage = "";
             selectedFileName = "";
             selectedFileUrl = "";
         }
+
         StateHasChanged();
     }
 
@@ -463,23 +642,34 @@
     {
         try
         {
+            chatMessage = "Initialisation du micro...";
+            StateHasChanged();
+
             bool success = await JSRuntime.InvokeAsync<bool>("audioChat.startRecording");
+
             if (success)
             {
                 isRecording = true;
                 recordingSeconds = 0;
-                recordingTimer = new System.Threading.Timer((_) => { recordingSeconds++; InvokeAsync(StateHasChanged); }, null, 1000, 1000);
+                chatMessage = "";
+
+                recordingTimer = new System.Threading.Timer((_) =>
+                {
+                    recordingSeconds++;
+                    InvokeAsync(StateHasChanged);
+                }, null, 1000, 1000);
             }
             else
             {
-                chatHistory.Add(new ChatMessageItem { EncryptedText = EncryptMessage("Veuillez autoriser le micro dans votre navigateur.") });
+                chatMessage = "⚠️ Erreur: Micro refusé par Android.";
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine("JS introuvable ou erreur de permission: " + ex.Message);
-            chatHistory.Add(new ChatMessageItem { EncryptedText = EncryptMessage("⚠️ Impossible d'activer le micro.") });
+            chatMessage = $"⚠️ Erreur JS: {ex.Message}";
         }
+
+        StateHasChanged();
     }
 
     private async Task CancelRecording()
@@ -487,7 +677,12 @@
         isRecording = false;
         recordingTimer?.Dispose();
         recordingSeconds = 0;
-        try { await JSRuntime.InvokeVoidAsync("audioChat.cancelRecording"); } catch { }
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("audioChat.cancelRecording");
+        }
+        catch { }
+
         StateHasChanged();
     }
 
@@ -502,13 +697,7 @@
         {
             msg.IsPlaying = true;
             if (msg.AudioProgress >= 100) msg.AudioProgress = 0;
-
-            try
-            {
-                if (!string.IsNullOrEmpty(msg.AttachmentDataUrl))
-                    await JSRuntime.InvokeVoidAsync("audioChat.playAudio", msg.AttachmentDataUrl);
-            }
-            catch { }
+            try { if (!string.IsNullOrEmpty(msg.AttachmentDataUrl)) await JSRuntime.InvokeVoidAsync("audioChat.playAudio", msg.AttachmentDataUrl); } catch { }
 
             int step = 100 / (msg.AudioDuration > 0 ? msg.AudioDuration : 1);
             msg.PlaybackTimer = new System.Threading.Timer((_) =>
@@ -533,67 +722,109 @@
             selectedFileName = file.Name;
             try
             {
-                var buffer = new byte[file.Size];
-                await file.OpenReadStream(maxAllowedSize: 15000000).ReadAsync(buffer);
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(maxAllowedSize: 15000000).CopyToAsync(ms);
+                var buffer = ms.ToArray();
+
                 selectedFileUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
             }
             catch (Exception ex)
             {
-                selectedFileName = "Erreur fichier trop lourd";
-                selectedFileUrl = "";
-                Console.WriteLine(ex.Message);
+                selectedFileName = "Erreur fichier";
+                Console.WriteLine($"Erreur Fichier : {ex.Message}");
             }
             StateHasChanged();
         }
     }
 
-    private void RemoveAttachment()
+    private void RemoveAttachment() { selectedFileName = ""; selectedFileUrl = ""; }
+    private async Task SubmitOrderDirectly()
     {
-        selectedFileName = "";
-        selectedFileUrl = "";
-    }
+        if (!AuthService.IsAuthenticated) { isCartOpen = false; OpenAuth(); return; }
+        if (string.IsNullOrWhiteSpace(userPhone) || string.IsNullOrWhiteSpace(userAddress)) { isCartOpen = false; isProfileOpen = true; StateHasChanged(); return; }
 
-    private async Task HandleGoogleLogin()
-    {
+        isSubmittingOrder = true;
+        StateHasChanged();
+
         try
         {
-            authErrorMessage = "Lancement de la connexion Google...";
-            StateHasChanged();
+            // 1. Récupération des infos du client
+            string uid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? Guid.NewGuid().ToString();
+            string token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
 
-            await AuthService.LoginWithGoogleAsync();
+            // 2. Création de la commande officielle (pour le tableau "Ventes")
+            var newOrder = new OrderModel
+            {
+                Id = Guid.NewGuid().ToString(),
+                ClientId = uid,
+                ClientName = userName,
+                Type = "en_ligne",
+                Status = "nouveau", // Allume le badge rouge chez l'admin
+                Total = CartService.GetTotal(),
+                CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Items = CartService.CartItems.Select(c => new OrderItem
+                {
+                    Name = c.ProductName,
+                    Quantity = c.Quantity,
+                    Price = c.UnitPrice
+                }).ToList()
+            };
 
-            authErrorMessage = "";
-            isAuthOpen = false;
-            StateHasChanged();
+            await FirebaseService.AddOrderAsync(newOrder, token);
+
+            // 3. Création du message automatique pour le Chat de l'équipe
+            string orderSummary = $"🛒 *NOUVELLE COMMANDE*\n👤 Client : {userName}\n📞 Tél : {userPhone}\n📍 Adresse : {userAddress}\n\n*Articles demandés :*\n";
+            foreach (var item in CartService.CartItems) orderSummary += $"- {item.ProductName} (x{item.Quantity})\n";
+            orderSummary += $"\n💰 *Total : {CartService.GetTotal():N0} FCFA*";
+
+            // L'objet qui part dans Firebase
+            var firebaseMessage = new
+            {
+                senderId = uid,
+                senderName = userName,
+                text = EncryptMessage(orderSummary),
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                isAudio = false
+            };
+
+            await FirebaseService.SendChatMessageAsync(uid, firebaseMessage, token);
+
+            // 4. Affichage local sur le téléphone du client pour qu'il le voie
+            chatHistory.Add(new ChatMessageItem { EncryptedText = firebaseMessage.text });
+
+            // 5. Nettoyage du panier
+            CartService.ClearCart();
+            isCartOpen = false;
+            isChatOpen = true;
         }
         catch (Exception ex)
         {
-            authErrorMessage = $"Erreur critique : {ex.Message}";
-            StateHasChanged();
-        }
-    }
+            // Si Firebase renvoie une erreur d'autorisation ou de permission (Jeton expiré ou invalide)
+            if (ex.Message.Contains("Permission denied") || ex.Message.Contains("Unauthorized") || ex.Message.Contains("401"))
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Votre session a expiré pour des raisons de sécurité. Veuillez vous reconnecter pour valider la commande.");
 
-    private async Task HandleAuth0Login()
-    {
-        try
+                // On nettoie la session expirée
+                AuthService.Logout();
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_idtoken");
+
+                // On ferme le panier et on ouvre la fenêtre de connexion
+                isCartOpen = false;
+                OpenAuth();
+            }
+            else
+            {
+                authErrorMessage = "Erreur transmission : " + ex.Message;
+                await JSRuntime.InvokeVoidAsync("alert", authErrorMessage);
+            }
+        }
+        finally
         {
-            authErrorMessage = "Lancement de la connexion Auth0...";
-            StateHasChanged();
-
-            await AuthService.LoginWithAuth0Async();
-
-            authErrorMessage = "";
-            isAuthOpen = false;
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            authErrorMessage = $"Erreur critique : {ex.Message}";
+            isSubmittingOrder = false;
             StateHasChanged();
         }
     }
-    private void SetVoiceInfoMessage()
-    {
-        chatMessage = "Le chat vocal est disponible sur l'application mobile MAUI.";
-    }
+    private async Task HandleGoogleLogin() { try { authErrorMessage = "Connexion Google..."; StateHasChanged(); await AuthService.LoginWithGoogleAsync(); isAuthOpen = false; } catch (Exception ex) { authErrorMessage = ex.Message; StateHasChanged(); } }
+    private async Task HandleAuth0Login() { try { authErrorMessage = "Connexion Auth0..."; StateHasChanged(); await AuthService.LoginWithAuth0Async(); isAuthOpen = false; } catch (Exception ex) { authErrorMessage = ex.Message; StateHasChanged(); } }
+    private void SetVoiceInfoMessage() => chatMessage = "Le chat vocal est disponible sur mobile.";
 }

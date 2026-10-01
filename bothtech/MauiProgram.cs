@@ -1,17 +1,28 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Components.Authorization;
 using System.Net.Http;
+using Microsoft.Extensions.Configuration;
+using System.Reflection;
+using bothtech.Shared.Models; // 👈 INDISPENSABLE ICI
 using bothtech.Services;
 using bothtech.Shared.Services;
+
 using Microsoft.AspNetCore.Components.WebView.Maui;
-
 using Microsoft.AspNetCore.Components.Routing;
-
+using Microsoft.Extensions.Configuration;
+using System.Reflection;
 
 #if WINDOWS
 using System.Net; // Indispensable pour le serveur d'écoute
 #else
 using Microsoft.Maui.Authentication; // Pour Android/iOS
+
+
+#endif
+
+// 👇 Requis pour intercepter les permissions et fichiers du WebView sur Android
+#if ANDROID
+using Android.Webkit;
 #endif
 
 namespace bothtech
@@ -21,6 +32,21 @@ namespace bothtech
         public static MauiApp CreateMauiApp()
         {
             var builder = MauiApp.CreateBuilder();
+
+            // 1. Charger appsettings.json depuis les ressources incorporées
+            var assembly = typeof(MauiProgram).Assembly;
+            using var stream = assembly.GetManifestResourceStream("bothtech.appsettings.json");
+            if (stream != null)
+            {
+                var config = new ConfigurationBuilder()
+                    .AddJsonStream(stream)
+                    .Build();
+
+                builder.Configuration.AddConfiguration(config);
+            }
+
+            // 2. Enregistrer la configuration pour l'injection par IOptions<AppSettings>
+            builder.Services.Configure<AppSettings>(builder.Configuration);
 
 #if WINDOWS
             // 👇 L'ASTUCE EST ICI : On écrase l'URL par défaut uniquement pour Windows
@@ -45,8 +71,7 @@ namespace bothtech
                     var context = await listener.GetContextAsync();
                     string codeResult = context.Request.QueryString["code"];
 
-                    // 👇 PAGE HTML AMÉLIORÉE AVEC UN BOUTON DE FERMETURE CLIQUABLE 👇
-                   // 👇 PAGE HTML PROPRE AVEC INSTRUCTION MANUELLE 👇
+                    // 👇 PAGE HTML PROPRE AVEC INSTRUCTION MANUELLE 👇
                     string html = "<html><head><meta charset='utf-8'></head><body style='text-align:center; margin-top:100px; font-family:sans-serif; background-color: #f4f6f9;'>" +
                                   "<div style='background: white; padding: 40px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>" +
                                   "<h2 style='color: #28a745;'>Connexion MAUI réussie ! 🎉</h2>" +
@@ -93,8 +118,7 @@ namespace bothtech
             builder.Logging.AddDebug();
 #endif
 
-            //builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri("https://localhost") });
-            //// Plus besoin de pointer vers https://localhost pour MAUI
+            // Plus besoin de pointer vers https://localhost pour MAUI
             builder.Services.AddScoped(sp => new HttpClient());
 
             // Le client Firebase configuré pour dialoguer directement avec Firebase
@@ -106,7 +130,7 @@ namespace bothtech
                         ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
                     };
                 });
-          
+
             builder.Services.AddSingleton<FirebaseService>();
             builder.Services.AddSingleton<DatabaseService>();
             builder.Services.AddSingleton<CartService>();
@@ -122,8 +146,53 @@ namespace bothtech
             builder.Services.AddScoped<CustomAuthStateProvider>();
             builder.Services.AddScoped<AuthenticationStateProvider>(provider => provider.GetRequiredService<CustomAuthStateProvider>());
             builder.Services.AddScoped<AuthService>();
-          
+
+            // ====================================================================
+            // 🔥 LE SECRET EST ICI : CONSERVER LES FICHIERS ET AJOUTER LE MICRO
+            // ====================================================================
+#if ANDROID
+            BlazorWebViewHandler.BlazorWebViewMapper.AppendToMapping("MicrophoneAndFiles", (handler, view) =>
+            {
+                // 1. Sauvegarde du client WebChrome d'origine (qui gère l'explorateur de fichiers)
+                var originalClient = handler.PlatformView.WebChromeClient;
+
+                // 2. On injecte notre client modifié
+                handler.PlatformView.SetWebChromeClient(new MyWebChromeClient(originalClient));
+            });
+#endif
+
             return builder.Build();
         }
     }
 }
+
+// ====================================================================
+// 🔥 CLASSE QUI INTERCEPTE LE MICRO MAIS LAISSE BLAZOR GÉRER LES FICHIERS
+// ====================================================================
+#if ANDROID
+internal class MyWebChromeClient : Android.Webkit.WebChromeClient
+{
+    private readonly Android.Webkit.WebChromeClient _originalClient;
+
+    public MyWebChromeClient(Android.Webkit.WebChromeClient originalClient)
+    {
+        _originalClient = originalClient;
+    }
+
+    public override void OnPermissionRequest(Android.Webkit.PermissionRequest request)
+    {
+        // ✅ On accorde silencieusement et automatiquement l'accès au Micro à Blazor
+        request?.Grant(request.GetResources());
+    }
+
+    // ✅ CORRECTION CS0104 : On utilise Android.Webkit.WebView explicitement
+    public override bool OnShowFileChooser(Android.Webkit.WebView webView, Android.Webkit.IValueCallback filePathCallback, Android.Webkit.WebChromeClient.FileChooserParams fileChooserParams)
+    {
+        if (_originalClient != null)
+        {
+            return _originalClient.OnShowFileChooser(webView, filePathCallback, fileChooserParams);
+        }
+        return base.OnShowFileChooser(webView, filePathCallback, fileChooserParams);
+    }
+}
+#endif

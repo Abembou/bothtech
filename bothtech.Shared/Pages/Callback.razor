@@ -5,6 +5,69 @@
 
 <PageTitle>Authentification en cours...</PageTitle>
 
+<div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; text-align: center; padding: 20px;">
+    @if (string.IsNullOrEmpty(errorMessage))
+    {
+        <h2 style="color: var(--primary);">Finalisation de la connexion...</h2>
+        <p>Veuillez patienter quelques instants.</p>
+    }
+    else
+    {
+        <h2 style="color: red;">Échec de la connexion</h2>
+        <div style="background: #fee; padding: 15px; border-radius: 8px; max-width: 600px; margin-top: 15px; word-wrap: break-word;">
+            <strong>Détail de l'erreur :</strong><br />
+            @errorMessage
+        </div>
+        <button class="btn btn-primary" style="margin-top: 20px; padding: 10px 20px;" @onclick='() => NavigationManager.NavigateTo("/login")'>Retour à la connexion</button>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "code")]
+    public string Code { get; set; }
+
+    private string errorMessage = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            if (!string.IsNullOrEmpty(Code))
+            {
+                try
+                {
+                    // On passe le code à notre service. S'il échoue, il va "jeter" une Exception.
+                    bool success = await AuthService.HandleAuth0CallbackAsync(Code);
+
+                    if (success)
+                    {
+                        // ✅ CRUCIAL POUR BLAZOR WEB : "forceLoad: true" force le navigateur
+                        // à recharger la page pour que MainLayout mette à jour le profil visuellement.
+                        NavigationManager.NavigateTo("/", forceLoad: true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // On capture la vraie erreur envoyée par Auth0 ou Firebase et on l'affiche !
+                    errorMessage = ex.Message;
+                    StateHasChanged();
+                }
+            }
+            else
+            {
+                errorMessage = "Aucun code d'autorisation reçu. Avez-vous annulé l'opération ?";
+                StateHasChanged();
+            }
+        }
+    }
+}
+@* @page "/callback"
+@using bothtech.Shared.Services
+@inject NavigationManager NavigationManager
+@inject AuthService AuthService
+
+<PageTitle>Authentification en cours...</PageTitle>
+
 <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column;">
     <h2>Connexion réussie !</h2>
     <p>Redirection vers l'application en cours...</p>
@@ -44,4 +107,4 @@
             }
         }
     }
-}
+} *@

@@ -1,0 +1,220 @@
+﻿@page "/avis"
+@layout AdminLayout
+@using bothtech.Shared.Models
+@using bothtech.Shared.Services
+@inject FirebaseService FirebaseService
+@inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
+
+<div style="background: transparent; padding: 20px; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); margin: 0; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    @if (isLoading)
+    {
+        <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+            <div style="width: 30px; height: 30px; border: 3px solid #ccc; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px;"></div>
+            Chargement des avis clients...
+        </div>
+    }
+    else
+    {
+        <div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr;">
+            <section class="card" style="background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+                <div class="card-header" style="padding: 15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-bottom: 1px solid var(--border);">
+                    <h2 class="card-title" style="margin:0; font-size: 1.15rem; color: var(--primary);">Évaluations Récentes</h2>
+                    <input type="search" @bind="searchFilter" @bind:event="oninput" class="form-control" placeholder="Rechercher produit, auteur..." style="max-width: 250px; padding: 6px 10px; font-size: 0.8rem;">
+                </div>
+
+                <div class="table-responsive" style="max-height: 700px; overflow-y: auto;">
+                    <table class="custom-table" style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8fafc;">
+                                <th style="width: 20%; padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left;">Date & Auteur</th>
+                                <th style="width: 25%; padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left;" class="hide-mobile">Produit</th>
+                                <th style="width: 15%; padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: center;">Note</th>
+                                <th style="width: 30%; padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left;">Commentaire</th>
+                                <th style="width: 10%; padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (filteredReviews.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">Aucun avis trouvé.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var review in filteredReviews)
+                                {
+                                    <tr>
+                                        <td style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                            <b>@review.Author</b><br>
+                                            <span style="font-size:0.75rem; color:var(--text-muted);">@review.Date.ToString("dd/MM/yyyy HH:mm")</span>
+                                            <!-- Affichage mobile du produit -->
+                                            <div class="mobile-only-display" style="margin-top:4px; font-size:0.8rem; font-weight:600; color:var(--primary);">
+                                                📦 @review.ProductName
+                                            </div>
+                                        </td>
+                                        <td class="hide-mobile" style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                            <span style="font-size:0.85rem; font-weight:600; color:var(--primary);">@review.ProductName</span>
+                                        </td>
+                                        <td style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: center;">
+                                            @((MarkupString)GetStarsHTML(review.Rating))
+                                        </td>
+                                        <td style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                            <p style="margin:0; font-size:0.85rem; line-height:1.4; color:var(--text-main);">@review.Comment</p>
+                                        </td>
+                                        <td style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: right;">
+                                            <button class="btn btn-outline" @onclick="() => DeleteReview(review.ProductId, review.ReviewId)" style="color:var(--danger); border-color:var(--danger-subtle); padding:4px 8px; font-size:0.8rem; cursor:pointer;">Supprimer</button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    }
+
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">@toastMessage</div>
+</div>
+
+@code {
+    private bool isLoading = true;
+    private string searchFilter = "";
+    private string toastMessage = "";
+    private string userRole = "client";
+    private string idToken = "";
+
+    private List<AdminReviewItem> allReviews = new();
+
+    private List<AdminReviewItem> filteredReviews
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(searchFilter)) return allReviews;
+            string query = searchFilter.ToLower().Trim();
+            return allReviews.Where(r =>
+                r.ProductName.ToLower().Contains(query) ||
+                r.Author.ToLower().Contains(query) ||
+                r.Comment.ToLower().Contains(query)
+            ).ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                userRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client";
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+                if (userRole == "client" || userRole == "detaillant")
+                {
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                await LoadReviewsAsync();
+            }
+            catch
+            {
+                NavManager.NavigateTo("/", true);
+            }
+        }
+    }
+
+    private async Task LoadReviewsAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+        try
+        {
+            var products = await FirebaseService.GetProductsAsync();
+            allReviews.Clear();
+
+            foreach (var p in products)
+            {
+                // Note : On gère à la fois Reviews (Dictionnaire) et on s'assure de la compatibilité
+                if (p.Reviews != null)
+                {
+                    foreach (var revKv in p.Reviews)
+                    {
+                        var rev = revKv.Value;
+                        allReviews.Add(new AdminReviewItem
+                        {
+                            ProductId = p.Id,
+                            ProductName = p.Name ?? "Produit sans nom",
+                            ReviewId = rev.Id ?? revKv.Key,
+                            Author = !string.IsNullOrEmpty(rev.UserName) ? rev.UserName : (!string.IsNullOrEmpty(rev.UserEmail) ? rev.UserEmail : "Client Anonyme"),
+                            Comment = rev.Comment ?? "",
+                            Rating = rev.Rating > 0 ? rev.Rating : 5,
+                            Date = rev.Date != default ? rev.Date : DateTime.Now
+                        });
+                    }
+                }
+            }
+
+            // Tri par date décroissante (les plus récents en premier)
+            allReviews = allReviews.OrderByDescending(r => r.Date).ToList();
+        }
+        catch (Exception ex)
+        {
+            ShowToast("Erreur de chargement des avis : " + ex.Message);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteReview(string productId, string reviewId)
+    {
+        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Voulez-vous vraiment supprimer cet avis ?");
+        if (!confirm) return;
+
+        try
+        {
+            await FirebaseService.DeleteProductReviewAsync(productId, reviewId, idToken);
+            ShowToast("✅ Avis supprimé avec succès.");
+            await LoadReviewsAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowToast("Erreur lors de la suppression : " + ex.Message);
+        }
+    }
+
+    private string GetStarsHTML(int rating)
+    {
+        string stars = "";
+        for (int i = 1; i <= 5; i++)
+        {
+            string color = i <= rating ? "#fbbf24" : "#e2e8f0";
+            stars += $"<span style=\"color:{color}; font-size:1.1rem;\">★</span>";
+        }
+        return stars;
+    }
+
+    private void ShowToast(string msg)
+    {
+        toastMessage = msg;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ => { toastMessage = ""; InvokeAsync(StateHasChanged); });
+    }
+
+    public class AdminReviewItem
+    {
+        public string ProductId { get; set; } = "";
+        public string ProductName { get; set; } = "";
+        public string ReviewId { get; set; } = "";
+        public string Author { get; set; } = "";
+        public string Comment { get; set; } = "";
+        public int Rating { get; set; } = 5;
+        public DateTime Date { get; set; } = DateTime.Now;
+    }
+}

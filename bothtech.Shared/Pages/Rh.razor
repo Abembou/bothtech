@@ -1,0 +1,312 @@
+﻿@page "/rh"
+@layout AdminLayout
+@using bothtech.Shared.Models
+@using bothtech.Shared.Services
+@inject FirebaseService FirebaseService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+
+<div style="background: transparent; padding: 15px; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); margin: 0; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- ONGLETS RH -->
+    <div class="rh-tabs" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+        <NavLink href="/equipe" class="rh-tab-btn active" style="padding: 10px 20px; font-weight: 700; font-size: 0.9rem; color: white; background: var(--primary); border-radius: 8px; text-decoration: none;">Gestion de l'Équipe</NavLink>
+        <NavLink href="/compteB2B" class="rh-tab-btn" style="padding: 10px 20px; font-weight: 700; font-size: 0.9rem; color: var(--text-muted); text-decoration: none;">Partenaires B2B</NavLink>
+    </div>
+
+    <div class="two-col-layout" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;">
+
+        <!-- FORMULAIRE RH -->
+        <section class="card" style="margin-bottom: 0; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+            <div class="card-header" style="padding: 15px; border-bottom: 1px solid var(--border);"><h2 class="card-title" style="margin:0; font-size:1.15rem; color:var(--primary);">Fiche Employé</h2></div>
+            <div class="card-body" style="padding: 20px;">
+                <EditForm Model="@currentStaff" OnValidSubmit="SaveStaffMember">
+                    <DataAnnotationsValidator />
+
+                    <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:5px;">1. Informations Générales</h3>
+
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>Email de connexion *</label>
+                        <InputText @bind-Value="currentStaff.Email" class="form-control" placeholder="agent@bothtech.bf" disabled="@isEditing" required />
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>Matricule *</label>
+                        <div style="display: flex; gap: 8px;">
+                            <InputText @bind-Value="currentStaff.Matricule" class="form-control" readonly="@isMatriculeAuto" required />
+                            <button type="button" class="btn btn-outline" @onclick="ToggleMatriculeMode" style="white-space: nowrap; padding: 0 10px; font-size: 0.8rem; border-style: dashed; cursor:pointer;">
+                                @(isMatriculeAuto ? "Passer en Manuel" : "Passer en Auto")
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>Nom complet *</label>
+                        <InputText @bind-Value="currentStaff.Name" class="form-control" required />
+                    </div>
+
+                    <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                        <div class="form-group">
+                            <label>Sexe *</label>
+                            <InputSelect @bind-Value="currentStaff.Sexe" class="form-control">
+                                <option value="Masculin">Masculin</option>
+                                <option value="Féminin">Féminin</option>
+                            </InputSelect>
+                        </div>
+                        <div class="form-group">
+                            <label>Sit. Matrimoniale *</label>
+                            <InputSelect @bind-Value="currentStaff.Situation" class="form-control">
+                                <option value="Célibataire">Célibataire</option>
+                                <option value="Marié(e)">Marié(e)</option>
+                                <option value="Divorcé(e)">Divorcé(e)</option>
+                                <option value="Veuf/Veuve">Veuf/Veuve</option>
+                            </InputSelect>
+                        </div>
+                    </div>
+
+                    <div class="form-grid-3" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                        <div class="form-group"><label>Né(e) le *</label><InputDate @bind-Value="currentStaff.BirthDate" class="form-control" required /></div>
+                        <div class="form-group"><label>Lieu de Naiss. *</label><InputText @bind-Value="currentStaff.BirthPlace" class="form-control" required /></div>
+                        <div class="form-group"><label>Nbre. charges *</label><InputNumber @bind-Value="currentStaff.NbCharges" class="form-control" min="0" /></div>
+                    </div>
+
+                    <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                        <div class="form-group"><label>Téléphone *</label><InputText @bind-Value="currentStaff.Phone" class="form-control" required /></div>
+                        <div class="form-group"><label>Adresse *</label><InputText @bind-Value="currentStaff.Address" class="form-control" required /></div>
+                    </div>
+
+                    <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background:#fff7ed; padding:10px; border-radius:6px; border:1px solid #f3e8ff; margin-bottom: 12px;">
+                        <div class="form-group" style="margin:0;"><label style="font-size:0.75rem; color:#9333ea;">Personne à prévenir</label><InputText @bind-Value="currentStaff.EmergencyName" class="form-control" placeholder="Nom et Prénom" /></div>
+                        <div class="form-group" style="margin:0;"><label style="font-size:0.75rem; color:#9333ea;">Contact d'urgence</label><InputText @bind-Value="currentStaff.EmergencyPhone" class="form-control" placeholder="Téléphone" /></div>
+                    </div>
+
+                    <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px; margin-top:20px; border-bottom:1px solid var(--border); padding-bottom:5px;">2. Poste & Rémunération</h3>
+
+                    <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                        <div class="form-group">
+                            <label>Poste Actuel (Rôle) *</label>
+                            <InputSelect @bind-Value="currentStaff.Role" class="form-control" @onchange="OnRoleChanged">
+                                <option value="commercial">Commercial</option>
+                                <option value="secretaire">Secrétaire</option>
+                                <option value="comptable">Comptable</option>
+                                <option value="livreur">Livreur</option>
+                                <option value="chauffeur">Chauffeur</option>
+                                <option value="gardien">Gardien</option>
+                                <option value="partenaire">Partenaire Externe</option>
+                                @if (currentUserRole == "maintenance")
+                                {
+                                    <option value="admin">Administrateur</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="form-group">
+                            <label>Type de Contrat *</label>
+                            <InputSelect @bind-Value="currentStaff.ContractType" class="form-control">
+                                <option value="cdi">CDI</option>
+                                <option value="cdd">CDD</option>
+                                <option value="prestataire">Prestation</option>
+                            </InputSelect>
+                        </div>
+                    </div>
+
+                    @if (currentStaff.Role != "partenaire")
+                    {
+                        <div id="financialStandardFields">
+                            <div class="form-group" style="margin-bottom: 12px;"><label>Salaire de Base (FCFA) *</label><InputNumber @bind-Value="currentStaff.BaseSalary" class="form-control" min="0" /></div>
+                            <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background:#f8fafc; padding:10px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.7rem;">Indemnités (FCFA)</label><InputNumber @bind-Value="currentStaff.Indemnite" class="form-control" min="0" /></div>
+                                <div class="form-group" style="margin:0;"><label style="font-size:0.7rem;">Allocations (FCFA)</label><InputNumber @bind-Value="currentStaff.AllocFamiliale" class="form-control" min="0" /></div>
+                                <div class="form-group" style="margin:0; margin-top:8px;"><label style="font-size:0.7rem; color:var(--danger);">IUTS (%)</label><InputNumber @bind-Value="currentStaff.Iuts" class="form-control" min="0" max="100" /></div>
+                                <div class="form-group" style="margin:0; margin-top:8px;"><label style="font-size:0.7rem; color:var(--danger);">CNSS (%)</label><InputNumber @bind-Value="currentStaff.Cnss" class="form-control" min="0" max="100" /></div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div id="financialPartnerFields" style="background:#f3e8ff; padding:12px; border-radius:6px; border:1px solid var(--purple); margin-bottom:15px;">
+                            <label style="color:var(--purple); font-weight:bold;">Commission Partenaire (%) *</label>
+                            <InputNumber @bind-Value="currentStaff.CommissionPct" class="form-control" min="0" max="100" />
+                        </div>
+                    }
+
+                    <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
+                        <InputCheckbox @id="staffActive" @bind-Value="currentStaff.Active" style="width: 20px; height: 20px;" />
+                        <label for="staffActive" style="margin:0; font-weight:bold; color:var(--success); cursor:pointer;">Compte Actif</label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" style="width:100%; padding: 14px; font-size:1.05rem; background: var(--primary); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">💾 Enregistrer l'Employé</button>
+                </EditForm>
+            </div>
+        </section>
+
+        <!-- LISTE DE L'ÉQUIPE -->
+        <section class="card" style="margin-bottom: 0; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+            <div class="card-header" style="padding: 15px; border-bottom: 1px solid var(--border);"><h2 class="card-title" style="margin:0; font-size:1.15rem; color:var(--primary);">Membres de l'Équipe</h2></div>
+            <div class="table-responsive" style="max-height: 800px; overflow-y: auto;">
+                <table class="custom-table" style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8fafc;">
+                            <th style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left;">Matricule & Agent</th>
+                            <th style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: left;">Poste & Contrat</th>
+                            <th style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: center;">Statut</th>
+                            <th style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (staffList.Count == 0)
+                        {
+                            <tr><td colspan="4" style="text-align:center; padding:20px; color: var(--text-muted);">Aucun membre.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var user in staffList)
+                            {
+                                <tr>
+                                    <td style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                        <b>[@user.Matricule] @user.Name</b><br>
+                                        <small style="color: var(--text-muted);">✉️ @user.Email</small>
+                                    </td>
+                                    <td style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                        <span class="badge" style="background:#e2e8f0; color:#334155; padding: 2px 6px; border-radius: 10px; font-size: 0.75rem;">@user.Role</span>
+                                        <span class="badge badge-purple" style="background:#f3e8ff; color:#7c3aed; padding: 2px 6px; border-radius: 10px; font-size: 0.75rem;">@(user.ContractType?.ToUpper())</span><br>
+                                        <b>SB: @FormatMoney(user.BaseSalary)</b>
+                                    </td>
+                                    <td style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: center;">
+                                        <span style="color: @(user.Active ? "var(--success)" : "var(--danger)"); font-size:0.7rem; font-weight:bold;">
+                                            @(user.Active ? "Actif" : "Suspendu")
+                                        </span>
+                                    </td>
+                                    <td style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: right;">
+                                        <button class="btn btn-outline" @onclick="() => EditStaff(user.Id)" style="margin-bottom:4px; padding: 4px 8px; font-size: 0.8rem; cursor:pointer;">Éditer</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">@toastMessage</div>
+</div>
+
+@code {
+    private StaffMemberModel currentStaff = new();
+    private List<StaffMemberModel> staffList = new();
+    private bool isEditing = false;
+    private bool isMatriculeAuto = true;
+    private string currentUserRole = "client";
+    private string idToken = "";
+    private string toastMessage = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                currentUserRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client";
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+                if (currentUserRole != "admin" && currentUserRole != "maintenance")
+                {
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                GenerateAutoMatricule();
+                await LoadStaffAsync();
+            }
+            catch
+            {
+                NavManager.NavigateTo("/", true);
+            }
+        }
+    }
+
+    private void GenerateAutoMatricule()
+    {
+        if (isMatriculeAuto)
+        {
+            string year = DateTime.Now.Year.ToString().Substring(2);
+            Random rnd = new Random();
+            currentStaff.Matricule = $"BT-{year}{rnd.Next(100, 999)}";
+        }
+    }
+
+    private void ToggleMatriculeMode()
+    {
+        isMatriculeAuto = !isMatriculeAuto;
+        if (isMatriculeAuto)
+        {
+            GenerateAutoMatricule();
+        }
+    }
+
+    private void OnRoleChanged(ChangeEventArgs e)
+    {
+        currentStaff.Role = e.Value?.ToString() ?? "commercial";
+    }
+
+    private async Task LoadStaffAsync()
+    {
+        try
+        {
+            staffList = await FirebaseService.GetStaffMembersAsync(idToken);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            ShowToast("Erreur de chargement : " + ex.Message);
+        }
+    }
+
+    private async Task SaveStaffMember()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(currentStaff.Id))
+            {
+                currentStaff.Id = Guid.NewGuid().ToString();
+                await FirebaseService.AddStaffMemberAsync(currentStaff, idToken);
+                ShowToast("✅ Employé enregistré avec succès !");
+            }
+            else
+            {
+                await FirebaseService.UpdateStaffMemberAsync(currentStaff.Id, currentStaff, idToken);
+                ShowToast("✅ Profil mis à jour !");
+            }
+
+            currentStaff = new();
+            isEditing = false;
+            GenerateAutoMatricule();
+            await LoadStaffAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowToast("Erreur d'enregistrement : " + ex.Message);
+        }
+    }
+
+    private void EditStaff(string id)
+    {
+        var staff = staffList.FirstOrDefault(s => s.Id == id);
+        if (staff != null)
+        {
+            currentStaff = staff;
+            isEditing = true;
+            isMatriculeAuto = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowToast(string msg)
+    {
+        toastMessage = msg;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ => { toastMessage = ""; InvokeAsync(StateHasChanged); });
+    }
+
+    private string FormatMoney(decimal amount) => $"{amount:N0} FCFA".Replace(',', ' ');
+}

@@ -30,11 +30,9 @@ namespace bothtech.Shared.Services
             }
             else
             {
-                // Calcul du prix final (prend en compte le prix B2B s'il existe et si on veut l'appliquer plus tard)
                 int finalPrice = product.Price;
                 if (product.OldPrice.HasValue && product.OldPrice < product.Price)
                 {
-                    // Sécurité anti-erreur de saisie (si ancien prix < nouveau prix)
                     finalPrice = product.Price;
                 }
 
@@ -52,6 +50,12 @@ namespace bothtech.Shared.Services
             return $"{product.Name} ajouté au panier !";
         }
 
+        public void ClearCart()
+        {
+            CartItems.Clear();
+            NotifyStateChanged();
+        }
+
         public void RemoveFromCart(string productId)
         {
             var item = CartItems.FirstOrDefault(i => i.ProductFirebaseId == productId);
@@ -62,7 +66,6 @@ namespace bothtech.Shared.Services
             }
         }
 
-        // NOUVELLE MÉTHODE : Pour les boutons + et - du menu
         public void UpdateQuantity(string productId, int change)
         {
             var item = CartItems.FirstOrDefault(i => i.ProductFirebaseId == productId);
@@ -70,7 +73,6 @@ namespace bothtech.Shared.Services
             {
                 int newQuantity = item.Quantity + change;
 
-                // Si on descend à 0 ou moins, on supprime l'article
                 if (newQuantity <= 0)
                 {
                     CartItems.Remove(item);
@@ -88,7 +90,6 @@ namespace bothtech.Shared.Services
 
         public int GetItemCount() => CartItems.Sum(i => i.Quantity);
 
-        // Déclenche l'événement pour dire à Blazor de rafraîchir l'écran
         private void NotifyStateChanged() => OnCartChanged?.Invoke();
     }
 }

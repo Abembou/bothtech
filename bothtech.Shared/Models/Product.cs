@@ -6,11 +6,9 @@ namespace bothtech.Shared.Models
 {
     public class Product
     {
-        // --- IDENTIFIANTS ---
         [PrimaryKey]
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        // --- INFORMATIONS GÉNÉRALES ---
         public string Name { get; set; } = string.Empty;
         public string Brand { get; set; } = string.Empty;
         public string Category { get; set; } = string.Empty;
@@ -18,52 +16,75 @@ namespace bothtech.Shared.Models
         public string ImageUrl { get; set; } = string.Empty;
         public string Badge { get; set; } = string.Empty;
 
-        // --- TARIFICATION ---
         public int Price { get; set; }
         public int? OldPrice { get; set; }
-        public int? PartnerPrice { get; set; } // Prix B2B
-        public int? CostPrice { get; set; }    // Prix de revient
+        public int? PartnerPrice { get; set; }
+        public int? CostPrice { get; set; }
         public int? MaxDiscount { get; set; }
 
-        // --- STOCKS & VENTES ---
         public int Quantity { get; set; }
         public int SoldQuantity { get; set; }
 
-        // --- ÉVALUATIONS ---
         public double AverageRating { get; set; }
         public int RatingCount { get; set; }
         public int RatingTotal { get; set; }
 
-        // --- STATUTS & ADMINISTRATION ---
         public bool Active { get; set; } = true;
         public bool Validated { get; set; } = false;
         public string ValidatedBy { get; set; } = string.Empty;
 
-        // --- DATES ---
         public long CreatedAt { get; set; }
         public long? UpdatedAt { get; set; }
         public long? ValidatedAt { get; set; }
 
-        // ==========================================
-        // NOUVELLES DONNÉES DÉTECTÉES DANS FIREBASE
-        // ==========================================
-
-        // [Ignore] empêche SQLite de planter en essayant de créer une colonne pour une Liste
         [Ignore]
         public List<string> Images { get; set; } = new List<string>();
 
-        // [Ignore] empêche SQLite de planter sur le dictionnaire, mais Newtonsoft le lira depuis Firebase !
         [Ignore]
         public Dictionary<string, Review> Reviews { get; set; } = new Dictionary<string, Review>();
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
+        public string ReviewsJson
+        {
+            get => System.Text.Json.JsonSerializer.Serialize(Reviews);
+            set
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    try
+                    {
+                        // ✅ On force la lecture même si les majuscules ne correspondent pas
+                        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        Reviews = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Review>>(value, options) ?? new Dictionary<string, Review>();
+                    }
+                    catch { Reviews = new Dictionary<string, Review>(); }
+                }
+            }
+        }
     }
 
-    // Sous-classe pour gérer la structure des commentaires (reviews) vus dans le JSON
     public class Review
     {
-        public string Author { get; set; } = string.Empty;
-        public string Comment { get; set; } = string.Empty;
-        public long CreatedAt { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("id")]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+
+        [System.Text.Json.Serialization.JsonPropertyName("userId")]
+        public string UserId { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("userName")]
+        public string UserName { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("userEmail")]
+        public string UserEmail { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("rating")]
         public int Rating { get; set; }
-        public string UserId { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("comment")]
+        public string Comment { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("date")]
+        public DateTime Date { get; set; } = DateTime.Now;
     }
 }

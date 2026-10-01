@@ -1,125 +1,78 @@
 ﻿@page "/login"
 @using bothtech.Shared.Services
+@using bothtech.Shared.Models
 @inject AuthService AuthService
 @inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
 
-<PageTitle>Connexion - Both Tech</PageTitle>
+<PageTitle>Connexion - Both Tech Burkina</PageTitle>
 
-<div class="login-container" style="max-width: 400px; margin: 80px auto; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); background-color: white; text-align: center;">
-    <h2 style="margin-bottom: 25px;">Connexion</h2>
+<div class="login-container" style="max-width: 400px; margin: 80px auto; padding: 30px; border-radius: 12px; box-shadow: 0 8px 25px rgba(0,0,0,0.1); background-color: white;">
 
-    @if (!string.IsNullOrEmpty(_errorMessage))
-    {
-        <div style="color: white; background-color: #e74c3c; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-            @_errorMessage
+    <header style="text-align: center; margin-bottom: 25px;">
+        <h3 class="brand-text" style="font-size: 1.5rem; color: var(--primary); margin: 0 0 10px 0;">Both Tech Burkina</h3>
+    </header>
+
+    <div class="modal-body">
+        <p class="text-center text-muted mb-24" style="line-height: 1.5; font-size: 0.95rem; text-align: center; margin-bottom: 24px;">
+            Connectez-vous avec votre compte sécurisé. S'il n'existe pas, il sera créé automatiquement.
+        </p>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem; text-align: center;">
+                @_errorMessage
+            </div>
+        }
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+            <button type="button" class="btn btn-social" @onclick="HandleGoogleLogin" disabled="@_isLoading" style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: white; font-weight: bold; cursor: pointer; transition: background 0.2s;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h5.4c-.23 1.3-1.63 3.82-5.4 3.82-3.25 0-5.9-2.7-5.9-6.05s2.65-6.05 5.9-6.05c1.86 0 3.1.8 3.8 1.47l2.13-2.05C16.5 3.5 14.4 2.6 11.8 2.6 6.6 2.6 2.4 6.8 2.4 12s4.2 9.4 9.4 9.4c5.4 0 9.02-3.8 9.02-9.17 0-.67-.07-1.12-.13-1.63z" /></svg>
+                Continuer avec Google
+            </button>
+            <button type="button" class="btn btn-social auth0" @onclick="HandleAuth0Login" disabled="@_isLoading" style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-radius: 8px; border: 1px solid transparent; background: #000; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.57 8.05c-.32-.78-.77-1.5-1.32-2.12-.55-.63-1.2-1.16-1.95-1.58-.75-.42-1.58-.73-2.48-.94-.9-.21-1.85-.31-2.82-.31-1.85 0-3.51.3-4.99.91-1.48.61-2.77 1.48-3.86 2.61-1.09 1.13-1.94 2.49-2.55 4.09-.61 1.6-.92 3.37-.92 5.31 0 1.94.31 3.71.92 5.31.61 1.6 1.46 2.96 2.55 4.09 1.09 1.13 2.38 2 3.86 2.61 1.48.61 3.14.91 4.99.91.97 0 1.92-.1 2.82-.31.9-.21 1.73-.52 2.48-.94.75-.42 1.4-.95 1.95-1.58.55-.62 1-1.34 1.32-2.12.32-.78.48-1.63.48-2.56 0-.93-.16-1.78-.48-2.56zm-9.57 9.15c-2.95 0-5.35-2.4-5.35-5.35s2.4-5.35 5.35-5.35 5.35 2.4 5.35 5.35-2.4 5.35-5.35 5.35z" /></svg>
+                Continuer avec Auth0
+            </button>
         </div>
-    }
-
-    <!-- Boutons de connexion externe (Google / Auth0) -->
-    <div style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px;">
-
-        <!-- Bouton Google -->
-        <!-- Bouton Google -->
-        <button type="button" class="btn" @onclick="HandleGoogleLogin" style="...">
-            <img src="https://www.google.com/favicon.ico" alt="Google" width="20" height="20" />
-            Continuer avec Google
-        </button>
-
-        <!-- Bouton Auth0 -->
-        <button type="button" class="btn" @onclick="HandleAuth0Login" style="...">
-            <img src="https://cdn.auth0.com/website/bob/up/apple-touch-icon-black.png" alt="Auth0" width="20" height="20" style="filter: brightness(0) invert(1);" />
-            Continuer avec Auth0
-        </button>
     </div>
-
-    <div style="display: flex; align-items: center; margin-bottom: 25px;">
-        <hr style="flex: 1; border: none; border-top: 1px solid #ddd;" />
-        <span style="padding: 0 10px; color: #888; font-size: 0.9em;">OU</span>
-        <hr style="flex: 1; border: none; border-top: 1px solid #ddd;" />
-    </div>
-
-    <!-- Formulaire Email/Mot de passe classique -->
-    <div style="margin-bottom: 15px;">
-        <input type="email" @bind="_email" placeholder="Adresse email" class="form-control" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;" />
-    </div>
-    <div style="margin-bottom: 20px;">
-        <input type="password" @bind="_password" placeholder="Mot de passe" class="form-control" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;" />
-    </div>
-
-    <button class="btn btn-primary" @onclick="HandleEmailLogin" disabled="@_isLoading" style="width: 100%; padding: 10px; font-weight: bold; border-radius: 5px; border: none; background-color: #007bff; color: white; cursor: pointer;">
-        @if (_isLoading)
-        {
-            <span>Connexion en cours...</span>
-        }
-        else
-        {
-            <span>Se connecter</span>
-        }
-    </button>
 </div>
 
 @code {
-    private string _email = "";
-    private string _password = "";
     private string _errorMessage = "";
     private bool _isLoading = false;
-
-    private async Task HandleEmailLogin()
-    {
-        if (string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_password))
-        {
-            _errorMessage = "Veuillez remplir tous les champs.";
-            return;
-        }
-
-        _isLoading = true;
-        _errorMessage = "";
-
-        try
-        {
-            bool success = await AuthService.LoginAsync(_email, _password);
-            if (success) NavigationManager.NavigateTo("/");
-            else _errorMessage = "Identifiants incorrects.";
-        }
-        catch (Exception)
-        {
-            _errorMessage = "Une erreur est survenue.";
-        }
-        finally
-        {
-            _isLoading = false;
-        }
-    }
 
     private async Task HandleGoogleLogin()
     {
         _isLoading = true;
-        _errorMessage = "";
+        _errorMessage = "Redirection vers Google...";
+        StateHasChanged();
         try
         {
             await AuthService.LoginWithGoogleAsync();
-            // L'application sera redirigée vers Google, on ne force pas la navigation ici
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            _errorMessage = "Erreur de connexion avec Google.";
+            _errorMessage = $"Erreur Google: {ex.Message}";
             _isLoading = false;
+            StateHasChanged();
         }
     }
 
     private async Task HandleAuth0Login()
     {
         _isLoading = true;
-        _errorMessage = "";
+        _errorMessage = "Redirection vers Auth0...";
+        StateHasChanged();
         try
         {
             await AuthService.LoginWithAuth0Async();
-            // L'application sera redirigée vers Auth0
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            _errorMessage = "Erreur de connexion avec Auth0.";
+            _errorMessage = $"Erreur Auth0: {ex.Message}";
             _isLoading = false;
+            StateHasChanged();
         }
     }
 }

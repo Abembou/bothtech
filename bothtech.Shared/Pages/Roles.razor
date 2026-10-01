@@ -1,0 +1,169 @@
+﻿@page "/roles"
+@layout AdminLayout
+@inject IJSRuntime JSRuntime
+
+<div style="background: transparent; padding: 20px; margin: 0; overflow-x: hidden; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- ONGLETS D'ACCORD -->
+    <div class="accord-tabs">
+        <NavLink href="/accords" class="accord-tab-btn" Match="NavLinkMatch.All">Opérations & Accords</NavLink>
+        <NavLink href="/accords/validation-pret" class="accord-tab-btn" style="color: var(--warning);">Validation Prêts</NavLink>
+        <NavLink href="/roles" class="accord-tab-btn active" style="background: #9333ea;">Matrice des Rôles</NavLink>
+    </div>
+
+    <section class="card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 class="card-title">Permissions du système</h2>
+            <button class="btn btn-primary" style="background:#9333ea; border-color:#9333ea; cursor:pointer;" @onclick="SaveRolesMatrix" disabled="@isSaving">
+                @(isSaving ? "Sauvegarde..." : "💾 Sauvegarder la Matrice")
+            </button>
+        </div>
+
+        <div style="padding: 15px; background: #f3e8ff; color: #6b21a8; font-size: 0.85rem; border-bottom: 1px solid var(--border);">
+            Cochez les cases pour autoriser un rôle à accéder ou modifier un module spécifique. <b>Attention : Les rôles "Admin" et "Maintenance" ont tous les droits par défaut et ne peuvent pas être restreints ici.</b>
+        </div>
+
+        <div class="table-responsive" style="max-height: 65vh; overflow: auto;">
+            <table class="matrix-table" id="rolesMatrix">
+                <thead>
+                    <tr>
+                        <th>Module \ Rôle</th>
+                        @foreach (var role in rolesList)
+                        {
+                            <th style="text-transform: capitalize;">@role</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var mod in modulesDef)
+                    {
+                        <tr style="background:#f1f5f9;">
+                            <td colspan="@(rolesList.Length + 1)" style="text-align:left; font-weight:bold; color:var(--primary); padding-top:15px;">@mod.Label</td>
+                        </tr>
+                        @foreach (var action in mod.Actions)
+                        {
+                            <tr>
+                                <td>Droit de <span style="text-transform:capitalize;">@action</span></td>
+                                @foreach (var role in rolesList)
+                                {
+                                    <td>
+                                        <input type="checkbox"
+                                               checked="@GetPermission(role, mod.Id, action)"
+                                               @onchange="(e) => SetPermission(role, mod.Id, action, (bool)(e.Value ?? false))">
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- TOAST DE NOTIFICATION -->
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">@toastMessage</div>
+
+</div>
+
+@code {
+    private bool isSaving = false;
+    private string toastMessage = "";
+
+    private readonly string[] rolesList = { "commercial", "secretaire", "comptable", "rh", "livreur", "chauffeur", "gardien", "partenaire" };
+
+    private readonly List<ModuleDefinition> modulesDef = new()
+    {
+        new() { Id = "produits", Label = "📦 Stocks & Produits", Actions = new() { "lecture", "ajouter", "modifier", "supprimer" } },
+        new() { Id = "commandes", Label = "🛒 Commandes Ligne", Actions = new() { "lecture", "modifier" } },
+        new() { Id = "comptoir", Label = "🏪 Vente Comptoir", Actions = new() { "lecture", "ajouter" } },
+        new() { Id = "b2b", Label = "🤝 Vente B2B", Actions = new() { "lecture", "ajouter" } },
+        new() { Id = "comptabilite", Label = "💰 Comptabilité & Caisse", Actions = new() { "lecture", "ajouter", "supprimer" } },
+        new() { Id = "equipe", Label = "👥 Ressources Humaines", Actions = new() { "lecture", "ajouter", "modifier", "supprimer" } },
+        new() { Id = "avis", Label = "⭐ Avis Clients", Actions = new() { "lecture", "supprimer" } },
+        new() { Id = "messages", Label = "💬 Chat Clients", Actions = new() { "lecture", "modifier" } }
+    };
+
+    // Structure de données locale pour les rôles : rolesData[role][module][action] = bool
+    private Dictionary<string, Dictionary<string, Dictionary<string, bool>>> currentRolesData = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Simulation ou chargement initial des rôles depuis Firebase
+        LoadMockRolesData();
+        await Task.CompletedTask;
+    }
+
+    private void LoadMockRolesData()
+    {
+        // Initialisation de base ou chargement par défaut pour éviter les erreurs nulles
+        foreach (var role in rolesList)
+        {
+            currentRolesData[role] = new();
+            foreach (var mod in modulesDef)
+            {
+                currentRolesData[role][mod.Id] = new();
+                foreach (var action in mod.Actions)
+                {
+                    currentRolesData[role][mod.Id][action] = false;
+                }
+            }
+        }
+    }
+
+    private bool GetPermission(string role, string moduleId, string action)
+    {
+        if (currentRolesData.TryGetValue(role, out var modDict) &&
+            modDict.TryGetValue(moduleId, out var actionDict) &&
+            actionDict.TryGetValue(action, out var val))
+        {
+            return val;
+        }
+        return false;
+    }
+
+    private void SetPermission(string role, string moduleId, string action, bool value)
+    {
+        if (!currentRolesData.ContainsKey(role)) currentRolesData[role] = new();
+        if (!currentRolesData[role].ContainsKey(moduleId)) currentRolesData[role][moduleId] = new();
+
+        currentRolesData[role][moduleId][action] = value;
+    }
+
+    private async Task SaveRolesMatrix()
+    {
+        isSaving = true;
+        try
+        {
+            // Simulation de l'écriture multi-path dans la base de données Firebase
+            await Task.Delay(600);
+
+            ShowToast("✅ Matrice des rôles mise à jour !");
+        }
+        catch (Exception err)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erreur lors de la sauvegarde : " + err.Message);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ShowToast(string msg)
+    {
+        toastMessage = msg;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            toastMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    public class ModuleDefinition
+    {
+        public string Id { get; set; } = "";
+        public string Label { get; set; } = "";
+        public List<string> Actions { get; set; } = new();
+    }
+}

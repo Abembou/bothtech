@@ -1,4 +1,4 @@
-﻿@page "/admin/ventes-comptoir"
+﻿@page "/ventecomptoir"
 @layout bothtech.Shared.Layout.AdminLayout
 @using bothtech.Shared.Models
 @using bothtech.Shared.Services
@@ -9,9 +9,9 @@
 
 <!-- MENU DES ONGLETS DE VENTE -->
 <div class="ventes-tabs ventes-tabs-top" style="padding: 0 10px;">
-    <NavLink class="ventes-tab-btn" href="/admin/commandes" style="text-decoration:none;">📋 Commandes en ligne</NavLink>
+    <NavLink class="ventes-tab-btn" href="/commandes" style="text-decoration:none;">📋 Commandes en ligne</NavLink>
     <button class="ventes-tab-btn active">🛒 Vente Comptoir</button>
-    <NavLink class="ventes-tab-btn" href="/admin/ventes-b2b" style="text-decoration:none;">🏢 Ventes B2B (Gros)</NavLink>
+    <NavLink class="ventes-tab-btn" href="/venteb2b" style="text-decoration:none;">🏢 Ventes B2B (Gros)</NavLink>
 </div>
 
 @if (!IsFormView)

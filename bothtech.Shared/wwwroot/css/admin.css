@@ -1,5 +1,347 @@
 /* ==========================================================================
-   10. VALIDATION FORMULAIRES & ERREURS BLAZOR
+   1. VARIABLES & RESET
+   ========================================================================== */
+:root {
+    --primary: #0284c7;
+    --primary-hover: #0369a1;
+    --primary-subtle: #e0f2fe;
+    --secondary: #475569;
+    --success: #16a34a;
+    --success-subtle: #dcfce7;
+    --danger: #dc2626;
+    --danger-subtle: #fee2e2;
+    --warning: #d97706;
+    --warning-subtle: #fef3c7;
+    --purple: #7c3aed;
+    --background: #f8fafc;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --sidebar-width: 250px;
+    --header-height: 60px;
+    --radius: 8px;
+    --shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--background);
+    color: var(--text-main);
+}
+
+/* ==========================================================================
+   2. ARCHITECTURE DU TABLEAU DE BORD (APP LAYOUT)
+   ========================================================================== */
+.app-layout {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Barre latérale (Sidebar) */
+.sidebar {
+    width: var(--sidebar-width);
+    background-color: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    z-index: 100;
+    transition: transform 0.3s ease;
+}
+
+.sidebar-brand {
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    color: var(--primary);
+}
+
+.nav-menu {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 0;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    color: var(--secondary);
+    text-decoration: none;
+    font-weight: 500;
+    transition: background 0.2s, color 0.2s;
+}
+
+    .nav-item:hover, .nav-item.active {
+        background-color: var(--primary-subtle);
+        color: var(--primary);
+        border-right: 3px solid var(--primary);
+    }
+
+/* Zone de contenu principale */
+.content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* En-tête supérieur (Top Header) */
+.top-header {
+    height: var(--header-height);
+    background-color: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    flex-shrink: 0;
+}
+
+.menu-toggle-btn {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--secondary);
+}
+
+/* Overlay pour mobile */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 90;
+}
+
+/* ==========================================================================
+   3. DESIGN DES COMPOSANTS (CARTES, KPIs, TABLEAUX)
+   ========================================================================== */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.kpi-card {
+    background: var(--surface);
+    padding: 20px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+}
+
+.kpi-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.kpi-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin-top: 5px;
+}
+
+.card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.card-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.card-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.card-body {
+    padding: 20px;
+}
+
+/* Tableaux */
+.table-responsive {
+    overflow-x: auto;
+    width: 100%;
+}
+
+.custom-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px; /* Force un scroll sur petit écran plutôt que de casser le design */
+}
+
+    .custom-table th, .custom-table td {
+        padding: 12px 15px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .custom-table th {
+        background-color: #f1f5f9;
+        font-weight: 600;
+        color: var(--secondary);
+        font-size: 0.85rem;
+        text-transform: uppercase;
+    }
+
+/* Boutons & Formulaires */
+.form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+    .form-control:focus {
+        border-color: var(--primary);
+    }
+
+.btn {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    border: 1px solid transparent;
+}
+
+.btn-outline {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-main);
+}
+
+/* Badges */
+.badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.badge-success {
+    background: var(--success-subtle);
+    color: var(--success);
+}
+
+.badge-warning {
+    background: var(--warning-subtle);
+    color: var(--warning);
+}
+
+.badge-danger {
+    background: var(--danger-subtle);
+    color: var(--danger);
+}
+
+.badge-purple {
+    background: #f3e8ff;
+    color: var(--purple);
+}
+
+/* ==========================================================================
+   4. ADAPTATION MOBILE (RESPONSIVE)
+   ========================================================================== */
+.mobile-only-display {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    /* Le menu latéral passe par-dessus le contenu */
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        transform: translateX(-100%);
+    }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+    .sidebar-overlay.open {
+        display: block;
+    }
+
+    .menu-toggle-btn {
+        display: block;
+    }
+
+    /* Ajustements du tableau pour mobile */
+    .hide-mobile {
+        display: none !important;
+    }
+
+    .mobile-only-display {
+        display: block;
+    }
+
+    /* Le tableau devient une liste de cartes sur mobile */
+    .custom-table th {
+        display: none;
+    }
+
+    .custom-table td {
+        display: block;
+        padding: 10px;
+        border: none;
+    }
+
+    .custom-table tr {
+        display: block;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 10px;
+    }
+
+    .action-buttons-container {
+        display: flex;
+        flex-direction: row !important;
+        justify-content: flex-start;
+        gap: 10px;
+        margin-top: 10px;
+    }
+}
+
+/* ==========================================================================
+   5. VALIDATION FORMULAIRES & ERREURS BLAZOR
    ========================================================================== */
 .valid.modified:not([type=checkbox]) {
     outline: 1px solid var(--success);

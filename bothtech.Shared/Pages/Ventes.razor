@@ -1,0 +1,281 @@
+﻿@page "/ventes"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using bothtech.Shared.Services
+@using System.Globalization
+@inject FirebaseService FirebaseService
+@inject NavigationManager NavManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Commandes en ligne | Console Admin</PageTitle>
+
+<div style="background: transparent; padding: 10px; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); margin: 0; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- Écran de chargement initial -->
+    @if (IsLoading)
+    {
+        <div style="text-align: center; padding: 50px;">
+            <h1 class="brand-title"><span>Both</span>Tech</h1>
+            <p style="color: var(--text-muted); margin-top: 10px; font-size: 0.9rem; font-weight: 600;">Chargement des commandes...</p>
+            <div style="margin-top: 15px; width: 26px; height: 26px; border: 3px solid var(--primary-subtle); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; display: inline-block;"></div>
+        </div>
+    }
+    else
+    {
+        <!-- MENU DES ONGLETS DE VENTE (HAUT) -->
+        <div class="ventes-tabs" style="display: flex; gap: 8px; overflow-x: auto; margin-bottom: 15px; border-bottom: 2px solid var(--border); padding-bottom: 10px;">
+            <button class="ventes-tab-btn active" style="position: relative; padding: 10px 15px; font-weight: 700; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer;">
+                📋 Commandes en ligne
+                @if (NewOrdersCount > 0)
+                {
+                    <span style="position: absolute; top: -5px; right: -5px; background: var(--danger); color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 10px; font-weight: bold; border: 2px solid white;">@NewOrdersCount</span>
+                }
+            </button>
+            <NavLink href="/ventecomptoir" class="ventes-tab-btn" style="text-decoration:none; padding: 10px 15px; font-weight: 700; color: var(--text-muted);">🛒 Vente Comptoir</NavLink>
+            <NavLink href="/venteb2b" class="ventes-tab-btn" style="text-decoration:none; padding: 10px 15px; font-weight: 700; color: var(--text-muted);">🏢 Ventes B2B (Gros)</NavLink>
+        </div>
+
+        <!-- ONGLET : COMMANDES EN LIGNE -->
+        <div class="card" style="background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+            <div class="card-header" style="padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 10px;">
+                <h2 class="card-title" style="font-size: 1.15rem; margin: 0; color: var(--primary);">Tickets & Ventes en ligne</h2>
+                <select @bind="StatusFilter" class="form-control" style="width: auto; min-width: 200px;">
+                    <option value="all">Toutes les commandes</option>
+                    <option value="nouveau">Nouvelles (Devis)</option>
+                    <option value="en_cours">En Discussion</option>
+                    <option value="validee">Conclue (À livrer)</option>
+                    <option value="livree">Livrée</option>
+                    <option value="annulee">Vente Annulée</option>
+                </select>
+            </div>
+
+            <div class="table-responsive" style="overflow-x: auto;">
+                <table class="custom-table" style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr>
+                            <th class="hide-mobile" style="padding: 12px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); text-align: left;">Date</th>
+                            <th style="padding: 12px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); text-align: left;">Client</th>
+                            <th class="hide-mobile" style="padding: 12px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); text-align: left;">Articles</th>
+                            <th class="hide-mobile" style="padding: 12px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); text-align: left;">Total</th>
+                            <th class="hide-mobile" style="padding: 12px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); text-align: center;">Statut</th>
+                            <th style="padding: 12px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (FilteredOrders.Count() == 0)
+                        {
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);">Aucune commande en ligne trouvée.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var order in FilteredOrders)
+                            {
+                                string orderUid = !string.IsNullOrEmpty(order.ClientId) ? order.ClientId : order.UserId;
+
+                                <tr>
+                                    <td class="hide-mobile" style="padding: 12px 10px; border-bottom: 1px solid var(--border);"><small>@FormatDate(order.CreatedAt)</small></td>
+                                    <td style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                        <b>@(string.IsNullOrEmpty(order.ClientName) ? order.RecipientName : order.ClientName)</b>
+                                        @if (order.Type == "b2b" || order.Type == "b2b_en_ligne")
+                                        {
+                                            <span class="badge badge-purple" style="margin-left:4px; background: #f3e8ff; color: #7c3aed; padding: 2px 6px; border-radius: 10px; font-size: 0.75rem;">B2B</span>
+                                        }
+                                        <!-- AFFICHAGE MOBILE -->
+                                        <div class="mobile-only-display" style="margin-top:8px; font-size:0.85rem; line-height: 1.5; border-top:1px dashed var(--border); padding-top:8px;">
+                                            <span style="color:var(--text-muted);">🕒 @FormatDate(order.CreatedAt)</span><br>
+                                            <b>@FormatMoney(order.Total)</b><br>
+                                            @((MarkupString)GetStatusBadge(order.Status))
+                                        </div>
+                                    </td>
+                                    <td class="hide-mobile" style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                        <small>@((MarkupString)GetItemsHtml(order.Items))</small>
+                                    </td>
+                                    <td class="hide-mobile" style="padding: 12px 10px; border-bottom: 1px solid var(--border);">
+                                        <b>@FormatMoney(order.Total)</b>
+                                        @if ((order.Type == "b2b" || order.Type == "b2b_en_ligne") && order.Reste > 0)
+                                        {
+                                            <br>
+                                            <small style="color:var(--danger); font-weight:bold;">Reste: @FormatMoney(order.Reste)</small>
+                                        }
+                                    </td>
+                                    <td class="hide-mobile" style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align:center;">
+                                        @((MarkupString)GetStatusBadge(order.Status))
+                                    </td>
+                                    <td style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align:right;">
+                                        <div class="action-buttons-container" style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
+                                            @if (string.IsNullOrEmpty(order.TraitePar))
+                                            {
+                                                <button class="btn btn-primary btn-action" @onclick="() => TakeCharge(order.Id, orderUid)" style="cursor:pointer; background: var(--primary); color: white; border: none; padding: 6px 12px; border-radius: 6px;">✋ Prendre</button>
+                                            }
+                                            else if (order.TraitePar == CurrentUserName || userRole == "admin" || userRole == "maintenance")
+                                            {
+                                                <span style="font-size:0.75rem; color:var(--primary); font-weight:bold;">👤 @(order.TraitePar == CurrentUserName ? "Moi" : order.TraitePar)</span>
+                                                <button class="btn btn-outline btn-action" @onclick="() => OpenChat(orderUid)" style="cursor:pointer; padding: 6px 12px; border-radius: 6px;">💬 Ouvrir</button>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge badge-warning" style="padding: 6px; background: var(--warning-subtle); color: var(--warning);">🔒 En cours par<br>@order.TraitePar</span>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <div id="toast" style="display: @(string.IsNullOrEmpty(ToastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">@ToastMessage</div>
+</div>
+
+@code {
+    private bool IsLoading = true;
+    private Dictionary<string, OrderModel> localOrders = new();
+    private string _statusFilter = "all";
+    private string ToastMessage = "";
+
+    // Sécurité et Sessions
+    private string CurrentUserName = "Agent";
+    private string userRole = "client";
+    private string idToken = "";
+
+    private string StatusFilter
+    {
+        get => _statusFilter;
+        set { _statusFilter = value; }
+    }
+
+    private int NewOrdersCount => localOrders.Values.Count(o => o.Status == "nouveau");
+
+    private IEnumerable<OrderModel> FilteredOrders => localOrders.Values
+        .Where(o => o.Type != "comptoir" && o.Type != "b2b")
+        .Where(o => StatusFilter == "all" || o.Status == StatusFilter)
+        .OrderByDescending(o => o.CreatedAt);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                userRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client";
+                string email = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_useremail") ?? "Agent";
+                CurrentUserName = email; // On utilise l'email comme identifiant pour l'agent
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+                // Si c'est un client, on le renvoie à l'accueil
+                if (userRole == "client" || userRole == "detaillant")
+                {
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                await LoadOrdersAsync();
+            }
+            catch
+            {
+                NavManager.NavigateTo("/", true);
+            }
+        }
+    }
+
+    private async Task LoadOrdersAsync()
+    {
+        IsLoading = true;
+        StateHasChanged();
+        try
+        {
+            // Récupère les VRAIES commandes Firebase
+            localOrders = await FirebaseService.GetOrdersAsync();
+        }
+        catch (Exception ex)
+        {
+            await ShowToast("Erreur chargement commandes : " + ex.Message);
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TakeCharge(string orderId, string targetUid)
+    {
+        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Voulez-vous prendre en charge cette commande ?");
+        if (!confirm) return;
+
+        try
+        {
+            // Mise à jour de la commande DANS FIREBASE
+            await FirebaseService.UpdateOrderStatusAndAgentAsync(orderId, "en_cours", CurrentUserName, idToken);
+
+            await ShowToast("✅ Commande prise en charge.");
+
+            // Si on a l'UID du client, on redirige vers le chat, sinon on recharge juste la liste
+            if (!string.IsNullOrEmpty(targetUid))
+            {
+                OpenChat(targetUid);
+            }
+            else
+            {
+                await LoadOrdersAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowToast("Erreur : " + ex.Message);
+        }
+    }
+
+    private void OpenChat(string clientId)
+    {
+        if (!string.IsNullOrEmpty(clientId))
+        {
+            NavManager.NavigateTo($"/admin/chat?uid={clientId}");
+        }
+    }
+
+    private string FormatMoney(decimal amount)
+    {
+        return $"{amount:N0} FCFA".Replace(',', ' ');
+    }
+
+    private string FormatDate(long timestamp)
+    {
+        if (timestamp < 10000000000)
+            return DateTimeOffset.FromUnixTimeSeconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+    }
+
+    private string GetItemsHtml(List<OrderItem> items)
+    {
+        if (items == null || !items.Any()) return "";
+        return string.Join("<br>", items.Select(i => $"{i.Quantity}x {i.Name}"));
+    }
+
+    private string GetStatusBadge(string status)
+    {
+        return status switch
+        {
+            "validee" => "<span class=\"badge\" style=\"background: var(--primary-subtle); color: var(--primary); padding: 3px 8px; border-radius: 12px; font-weight: 700;\">À livrer</span>",
+            "livree" => "<span class=\"badge\" style=\"background: var(--success-subtle); color: var(--success); padding: 3px 8px; border-radius: 12px; font-weight: 700;\">Livrée</span>",
+            "annulee" => "<span class=\"badge\" style=\"background: var(--danger-subtle); color: var(--danger); padding: 3px 8px; border-radius: 12px; font-weight: 700;\">Annulée</span>",
+            "nouveau" => "<span class=\"badge\" style=\"background: #f3e8ff; color: var(--purple); padding: 3px 8px; border-radius: 12px; font-weight: 700;\">Nouveau Devis</span>",
+            "en_cours" => "<span class=\"badge\" style=\"background: #e0f2fe; color: #0284c7; padding: 3px 8px; border-radius: 12px; font-weight: 700;\">En discussion</span>",
+            _ => $"<span class=\"badge\" style=\"background: #e2e8f0; color: #475569; padding: 3px 8px; border-radius: 12px; font-weight: 700;\">{status}</span>"
+        };
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+}

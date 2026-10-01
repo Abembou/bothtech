@@ -10,18 +10,18 @@
     <!-- ========================================================= -->
     <!-- 1. CSS PROVENANT DU PROJET PARTAGÉ (bothtech.Shared)      -->
     <!-- ========================================================= -->
-    <!-- Lien corrigé pointant vers le sous-dossier css/ de votre projet partagé -->
     <link rel="stylesheet" href="_content/bothtech.Shared/css/main.css" />
 
-    <!-- (Optionnel) FontAwesome pour les icônes de votre CSS (étoiles, panier...) -->
+    <!-- 👇 AJOUTEZ CETTE LIGNE POUR LE DASHBOARD ADMIN 👇 -->
+    <link rel="stylesheet" href="_content/bothtech.Shared/css/admin.css" />
+
+    <!-- FontAwesome pour les icônes de votre CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <!-- ========================================================= -->
     <!-- 2. CSS SPÉCIFIQUE AU PROJET MAUI ET ISOLATION CSS         -->
     <!-- ========================================================= -->
-    <!-- app.css contient les règles pour la status-bar sur mobile -->
     <link rel="stylesheet" href="app.css" />
-    <!-- Gère l'isolation CSS (les fichiers .razor.css) -->
     <link rel="stylesheet" href="bothtech.styles.css" />
 
     <link rel="icon" href="data:,">
@@ -32,23 +32,24 @@
 
     <!-- MAUI injecte ses propres interops en arrière-plan -->
     <script src="_framework/blazor.webview.js" autostart="false"></script>
-    <!-- FONCTIONS JAVASCRIPT POUR LE MICROPHONE -->
-    <!-- FONCTIONS JAVASCRIPT POUR LE MICROPHONE (SÉCURISÉES) -->
 
+    <!-- ========================================================= -->
+    <!-- 3. FONCTIONS JAVASCRIPT POUR LE MICROPHONE (SÉCURISÉES)   -->
+    <!-- ========================================================= -->
     <script>
         window.audioChat = {
             mediaRecorder: null,
             audioChunks: [],
 
             startRecording: async function () {
-                // 1. Vérification de la compatibilité et du HTTPS
+                // Vérification de la compatibilité et du HTTPS
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    console.error("L'API micro est introuvable. Êtes-vous bien en HTTPS ou sur Localhost ?");
+                    console.error("L'API micro est introuvable. Assurez-vous que le WebView a les permissions requises.");
                     return false;
                 }
 
                 try {
-                    // 2. Demande d'autorisation
+                    // Demande d'autorisation (Autorisée automatiquement par MyWebChromeClient côté C#)
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     this.mediaRecorder = new MediaRecorder(stream);
                     this.audioChunks = [];
@@ -60,10 +61,10 @@
                     };
 
                     this.mediaRecorder.start();
-                    return true; // Accès accordé
+                    return true; // Accès accordé et enregistrement démarré
                 } catch (err) {
-                    console.error("Accès au micro refusé ou erreur:", err);
-                    return false; // Accès refusé par l'utilisateur
+                    console.error("Accès au micro refusé ou erreur technique:", err);
+                    return false; // Accès refusé
                 }
             },
 
@@ -106,6 +107,5 @@
             }
         };
     </script>
-
 </body>
 </html>

@@ -1,158 +1,314 @@
-﻿@page "/admin/chat"
+﻿@page "/chat"
 @layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Services
 @using bothtech.Shared.Models
+@using System.Security.Cryptography
+@using System.IO
+@inject FirebaseService FirebaseService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+@implements IDisposable
 
-<PageTitle>Messagerie | Console Admin</PageTitle>
+<PageTitle>Messages & Support | Console Admin</PageTitle>
 
-<div id="chatsDashboard">
-    <div class="chat-layout @(SelectedChatUid != null ? "chat-active" : "")">
+<div class="chat-container" style="display: flex; height: calc(100vh - 80px); background: #fff; margin: -10px; overflow: hidden; font-family: 'Plus Jakarta Sans', sans-serif;">
 
-        <!-- COLONNE 1 : LISTE DES CHATS -->
-        <div class="chat-sidebar">
-            <div class="chat-list-header" style="display: flex; align-items: center; justify-content: space-between; padding: 15px; border-bottom: 1px solid var(--border); background: #f8fafc;">
-                <span style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">Discussions</span>
-            </div>
-
-            <div class="chat-list">
-                @if (IsLoading)
-                {
-                    <div style="padding: 15px; text-align: center; color: var(--text-muted);">Chargement...</div>
-                }
-                else
-                {
-                    @foreach (var conversation in Conversations)
-                    {
-                        <div class="chat-item @(SelectedChatUid == conversation.Key ? "active" : "")"
-                             @onclick="() => SelectChat(conversation.Key)">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                                <span class="chat-item-name">@conversation.Value.ClientName</span>
-                            </div>
-                            <div class="chat-item-preview">@conversation.Value.LastMessagePreview</div>
-                        </div>
-                    }
-                }
-            </div>
+    <!-- GAUCHE : LISTE DES CONTACTS -->
+    <div class="chat-sidebar" style="width: 350px; border-right: 1px solid var(--border); display: @(selectedClientId == null ? "flex" : "none"); flex-direction: column; background: #f8fafc;">
+        <div style="padding: 20px; border-bottom: 1px solid var(--border); background: #fff;">
+            <h2 style="margin: 0; font-size: 1.2rem; color: var(--primary);">Discussions</h2>
+            <input type="search" placeholder="Rechercher un client..." class="form-control" style="margin-top: 10px; width: 100%;">
         </div>
 
-        <!-- COLONNE 2 : CHAT ACTIF -->
-        <div class="chat-main">
-            @if (SelectedChatUid == null)
+        <div style="flex: 1; overflow-y: auto; padding: 10px;">
+
+            <!-- AFFICHAGE DES ERREURS POUR DÉBOGAGE -->
+            @if (!string.IsNullOrEmpty(errorMessage))
             {
-                <div class="chat-header-info" style="background:#fff; height: 100%; display: flex; align-items: center; justify-content: center;">
-                    <div style="color: var(--text-muted);">
-                        Sélectionnez une discussion à gauche pour commencer
-                    </div>
+                <div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 0.85rem;">
+                    <b>Erreur :</b> @errorMessage
                 </div>
+            }
+
+            @if (isLoadingChats)
+            {
+                <div style="text-align: center; padding: 20px; color: var(--text-muted);">Chargement...</div>
+            }
+            else if (!allChats.Any())
+            {
+                <div style="text-align: center; padding: 20px; color: var(--text-muted);">Aucun message.</div>
             }
             else
             {
-                <div class="chat-header-info" style="background:#fff; flex-shrink: 0;">
-                    <div style="display:flex; align-items:center; padding: 15px; border-bottom: 1px solid var(--border);">
-                        <!-- Bouton retour visible uniquement sur mobile -->
-                        <button class="mobile-back-btn" @onclick="CloseChat" style="background: none; border: none; font-size: 1.2rem; margin-right: 10px; cursor: pointer;">🔙</button>
-                        <div style="display:flex; flex-direction:column; flex:1;">
-                            <span style="font-weight:800; font-size:1.1rem;">
-                                👤 @ActiveConversation.ClientName
-                            </span>
+                <!-- CORRECTION DU BUG BLOCANT : Vérification que la liste Messages n'est pas vide avant de faire un Max() -->
+                @foreach (var chat in allChats.OrderByDescending(c => c.Value.Messages != null && c.Value.Messages.Any() ? c.Value.Messages.Values.Max(m => m.Timestamp) : 0))
+                {
+                    var lastMsg = chat.Value.Messages?.Values.OrderByDescending(m => m.Timestamp).FirstOrDefault();
+                    string clientName = lastMsg?.SenderName ?? "Client Inconnu";
+                    if (lastMsg?.SenderId == currentAdminUid) clientName = "Moi";
+
+                    <div @onclick="() => SelectClient(chat.Key, clientName)" style="padding: 15px; border-radius: 8px; margin-bottom: 5px; cursor: pointer; background: @(selectedClientId == chat.Key ? "#e0f2fe" : "#fff"); border: 1px solid @(selectedClientId == chat.Key ? "#bae6fd" : "var(--border)"); transition: 0.2s;">
+                        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                            <strong style="color: var(--text-main); font-size: 0.95rem;">@clientName</strong>
+                            @if (lastMsg != null)
+                            {
+                                <small style="color: var(--text-muted); font-size: 0.75rem;">@FormatDate(lastMsg.Timestamp)</small>
+                            }
+                        </div>
+                        <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            @(lastMsg != null ? DecryptMessage(lastMsg.Text) : "...")
                         </div>
                     </div>
-                </div>
-
-                <!-- Zone de messages défilante -->
-                <div class="chat-messages" style="display:flex; flex-direction:column; flex: 1; overflow-y: auto; padding: 15px;">
-                    @foreach (var msg in ActiveConversation.Messages)
-                    {
-                        <div class="msg-bubble @(msg.Sender == "admin" ? "admin" : "client")">
-                            <div style="font-size:0.75rem; font-weight:bold; margin-bottom:4px; opacity:0.8;">
-                                @(msg.Sender == "admin" ? "Agent" : "Client")
-                            </div>
-                            @msg.Text
-                            <span class="msg-time">@FormatTime(msg.Timestamp)</span>
-                        </div>
-                    }
-                </div>
-
-                <!-- Zone de saisie -->
-                <form class="chat-input-container" style="display:flex; padding: 10px; background: #fff; border-top: 1px solid var(--border);" @onsubmit="SendMessage">
-                    <input type="text" id="adminChatInput" placeholder="Répondre..." @bind="NewMessageText" autocomplete="off" style="flex: 1; border: 1px solid var(--border); border-radius: 20px; padding: 10px 15px; outline: none; margin-right: 10px;">
-                    <button type="submit" class="btn-send" disabled="@string.IsNullOrWhiteSpace(NewMessageText)" style="background: var(--primary); color: white; border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer;">
-                        ➤
-                    </button>
-                </form>
+                }
             }
         </div>
     </div>
+
+    <!-- DROITE : FENÊTRE DE DISCUSSION -->
+    <div class="chat-main" style="flex: 1; display: @(selectedClientId != null ? "flex" : "none"); flex-direction: column; background: #efeae2;">
+        @if (selectedClientId != null)
+        {
+            <div style="padding: 15px 20px; background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 15px;">
+                <button class="btn btn-outline mobile-only-display" @onclick="() => selectedClientId = null" style="padding: 5px 10px; border:none; background:#f1f5f9;">⬅️</button>
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--primary-subtle); color: var(--primary); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2rem;">
+                    @(selectedClientName.Substring(0, 1).ToUpper())
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 1.1rem;">@selectedClientName</h3>
+                    <small style="color: var(--success); font-weight: bold;">En ligne</small>
+                </div>
+            </div>
+
+            <div style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px;" id="adminChatContainer">
+                @if (allChats.TryGetValue(selectedClientId, out var session) && session.Messages != null)
+                {
+                    @foreach (var msg in session.Messages.Values.OrderBy(m => m.Timestamp))
+                    {
+                        bool isAdminMessage = msg.SenderId == currentAdminUid;
+
+                        <div style="align-self: @(isAdminMessage ? "flex-end" : "flex-start"); background: @(isAdminMessage ? "#dcf8c6" : "#fff"); padding: 10px 15px; border-radius: 12px; max-width: 75%; box-shadow: 0 1px 2px rgba(0,0,0,0.1); position: relative;">
+                            @if (!isAdminMessage)
+                            {
+                                <div style="font-size: 0.75rem; color: var(--primary); font-weight: bold; margin-bottom: 4px;">@msg.SenderName</div>
+                            }
+
+                            <div style="font-size: 0.95rem; color: #111; line-height: 1.4; white-space: pre-wrap;">
+                                @DecryptMessage(msg.Text)
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(msg.AttachmentDataUrl))
+                            {
+                                <img src="@msg.AttachmentDataUrl" style="max-width: 100%; border-radius: 8px; margin-top: 8px;" />
+                            }
+
+                            <div style="font-size: 0.65rem; color: #888; text-align: right; margin-top: 5px;">
+                                @FormatDate(msg.Timestamp)
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div style="padding: 15px; background: #f0f2f5; display: flex; align-items: center; gap: 10px;">
+                <button class="btn btn-outline" style="border: none; background: #fff; border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">📎</button>
+                <input type="text" @bind="newMessageText" @bind:event="oninput" @onkeyup="HandleKeyUp" class="form-control" placeholder="Écrivez un message au client..." style="flex: 1; border-radius: 20px; padding: 12px 20px; border: none; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                <button class="btn btn-primary" @onclick="SendMessageAsync" style="border-radius: 50%; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; padding: 0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
+                </button>
+            </div>
+        }
+        else
+        {
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted);">
+                <div style="font-size: 4rem; opacity: 0.2; margin-bottom: 20px;">💬</div>
+                <h3>Sélectionnez une discussion</h3>
+                <p>Cliquez sur un contact à gauche pour afficher les messages.</p>
+            </div>
+        }
+    </div>
 </div>
 
-@code {
-    private bool IsLoading = true;
-    private string SelectedChatUid;
-    private string NewMessageText = "";
+<style>
+    @@media (min-width: 768px) {
+        .chat-sidebar {
+            display: flex !important;
+        }
 
-    // Modèle spécifique à l'UI pour regrouper les messages par client
-    public class ChatUiModel
+        .chat-main {
+            display: flex !important;
+        }
+
+        .mobile-only-display {
+            display: none !important;
+        }
+    }
+</style>
+
+@code {
+    private bool isLoadingChats = true;
+    private string loadingStep = ""; // ✅ LA LIGNE MANQUANTE EST ICI
+    private string idToken = "";
+    private string currentAdminUid = "";
+    private string currentAdminName = "Service Client BothTech";
+    private string errorMessage = "";
+
+    private string? selectedClientId = null;
+    private string selectedClientName = "";
+    private string newMessageText = "";
+
+    private Dictionary<string, ChatSession> allChats = new();
+    private System.Threading.Timer? _refreshTimer;
+
+    // LES MÊMES CLÉS DE CHIFFREMENT QUE DANS MAINLAYOUT
+    private readonly byte[] encryptionKey = System.Text.Encoding.UTF8.GetBytes("BothTechSecretKeyForChat2026!@#$");
+    private readonly byte[] encryptionIv = System.Text.Encoding.UTF8.GetBytes("BothTechInitVect");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        public string ClientName { get; set; }
-        public string LastMessagePreview => Messages.LastOrDefault()?.Text ?? "Fichier/Audio joint";
-        public List<ChatMessage> Messages { get; set; } = new();
+        if (firstRender)
+        {
+            try
+            {
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+                currentAdminUid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "admin_uid";
+                currentAdminName = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_username") ?? "Service Client";
+
+                await LoadChatsAsync();
+
+                // Rafraîchissement automatique toutes les 5 secondes
+                _refreshTimer = new System.Threading.Timer(async _ => await InvokeAsync(LoadChatsAsync), null, 5000, 5000);
+            }
+            catch { }
+        }
     }
 
-    private Dictionary<string, ChatUiModel> Conversations = new();
-
-    // Récupère dynamiquement la conversation active
-    private ChatUiModel ActiveConversation => SelectedChatUid != null && Conversations.ContainsKey(SelectedChatUid) ? Conversations[SelectedChatUid] : null;
-
-    protected override async Task OnInitializedAsync()
+    private async Task LoadChatsAsync()
     {
-        // Simulation d'un chargement Firebase
-        await Task.Delay(500);
-
-        Conversations = new Dictionary<string, ChatUiModel>
+        try
         {
-            { "uid_client_1", new ChatUiModel {
-                ClientName = "Abdoulaye",
-                Messages = new List<ChatMessage> {
-                    new ChatMessage { Sender = "client", Text = "Bonjour, le PC est dispo ?", Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
-                }
-            }},
-            { "uid_client_2", new ChatUiModel {
-                ClientName = "Lucien",
-                Messages = new List<ChatMessage> {
-                    new ChatMessage { Sender = "admin", Text = "Oui, il est disponible.", Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
-                }
-            }}
+            loadingStep = "Téléchargement des discussions depuis Firebase...";
+            StateHasChanged();
+
+            var newChats = await FirebaseService.GetAllChatsAsync(idToken);
+            if (newChats != null)
+            {
+                allChats = newChats;
+            }
+            errorMessage = "";
+        }
+        catch (Exception ex)
+        {
+            // Détection du jeton expiré
+            if (ex.Message.Contains("Unauthorized") || ex.Message.Contains("Permission denied"))
+            {
+                errorMessage = "Votre session de sécurité a expiré. Veuillez vous déconnecter (Porte de Sortie) puis vous reconnecter.";
+                // Optionnel : Vous pourriez même forcer la déconnexion ici en appelant HandleLogout()
+            }
+            else
+            {
+                errorMessage = "Impossible de lire les chats : " + ex.Message;
+            }
+        }
+        finally
+        {
+            isLoadingChats = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SelectClient(string clientId, string clientName)
+    {
+        selectedClientId = clientId;
+        selectedClientName = clientName;
+        StateHasChanged();
+        ScrollToBottom();
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newMessageText) || selectedClientId == null) return;
+
+        var messageToSend = new
+        {
+            senderId = currentAdminUid,
+            senderName = currentAdminName,
+            text = EncryptMessage(newMessageText),
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            isAudio = false
         };
 
-        IsLoading = false;
-    }
+        string tempText = newMessageText;
+        newMessageText = "";
 
-    private void SelectChat(string uid)
-    {
-        SelectedChatUid = uid;
-    }
-
-    private void CloseChat()
-    {
-        SelectedChatUid = null;
-    }
-
-    private void SendMessage()
-    {
-        if (string.IsNullOrWhiteSpace(NewMessageText) || ActiveConversation == null) return;
-
-        // On ajoute le message à la liste (Plus tard, on l'enverra à FirebaseService)
-        ActiveConversation.Messages.Add(new ChatMessage
+        try
         {
-            Sender = "admin",
-            Text = NewMessageText,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-        });
-
-        NewMessageText = ""; // Vide le champ de texte
+            await FirebaseService.SendChatMessageAsync(selectedClientId, messageToSend, idToken);
+            await LoadChatsAsync();
+            ScrollToBottom();
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erreur d'envoi : " + ex.Message);
+            newMessageText = tempText;
+        }
     }
 
-    private string FormatTime(long timestamp)
+    private async Task HandleKeyUp(KeyboardEventArgs e)
     {
-        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime.ToString("HH:mm");
+        if (e.Key == "Enter")
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private async void ScrollToBottom()
+    {
+        try
+        {
+            await Task.Delay(100);
+            await JSRuntime.InvokeVoidAsync("eval", "var c = document.getElementById('adminChatContainer'); if(c) c.scrollTop = c.scrollHeight;");
+        }
+        catch { }
+    }
+
+    private string EncryptMessage(string plainText)
+    {
+        if (string.IsNullOrEmpty(plainText)) return "";
+        using Aes aes = Aes.Create();
+        aes.Key = encryptionKey; aes.IV = encryptionIv;
+        ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
+        using MemoryStream ms = new MemoryStream();
+        using CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write);
+        using (StreamWriter sw = new StreamWriter(cs)) { sw.Write(plainText); }
+        return Convert.ToBase64String(ms.ToArray());
+    }
+
+    private string DecryptMessage(string cipherText)
+    {
+        if (string.IsNullOrEmpty(cipherText)) return "";
+        try
+        {
+            using Aes aes = Aes.Create();
+            aes.Key = encryptionKey; aes.IV = encryptionIv;
+            ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+            using MemoryStream ms = new MemoryStream(Convert.FromBase64String(cipherText));
+            using CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
+            using StreamReader sr = new StreamReader(cs);
+            return sr.ReadToEnd();
+        }
+        catch { return "Erreur de lecture du message chiffré."; }
+    }
+
+    private string FormatDate(long timestamp)
+    {
+        if (timestamp == 0) return "";
+        if (timestamp < 10000000000)
+            return DateTimeOffset.FromUnixTimeSeconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+        return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy HH:mm");
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 }

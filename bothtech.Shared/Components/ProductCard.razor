@@ -1,15 +1,19 @@
 ﻿@using bothtech.Shared.Models
 @using System.Globalization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+@inject FirebaseService FirebaseService
+@inject IJSRuntime JSRuntime
 
 <article class="product-card @(IsOutOfStock ? "out-of-stock" : "")">
     <div class="product-image-box">
         @if (IsPromo)
         {
-            <div class="promo-badge">PROMO</div>
+            <div class="promo-badge" style="position: absolute; top: 8px; left: 8px; background: var(--brand-red); color: white; padding: 2px 6px; font-size: 0.7rem; font-weight: bold; border-radius: 4px; z-index: 2;">PROMO</div>
         }
         else if (!string.IsNullOrEmpty(Product.Badge))
         {
-            <div class="promo-badge" style="background: var(--purple);">@Product.Badge</div>
+            <div class="promo-badge" style="position: absolute; top: 8px; left: 8px; background: var(--purple, #0284c7); color: white; padding: 2px 6px; font-size: 0.7rem; font-weight: bold; border-radius: 4px; z-index: 2;">@Product.Badge</div>
         }
 
         <img src="@MainImage" alt="@Product.Name">
@@ -27,9 +31,8 @@
             <div class="stars-wrapper">
                 @((MarkupString)GetStarsHTML(Product.AverageRating))
             </div>
-            <!-- Bouton cliquable pour ouvrir les avis -->
-            <button class="btn-rate-open" @onclick="ToggleReviews" style="background:none; border:none; color:var(--text-muted); font-size:0.8rem; cursor:pointer;">
-                @Product.RatingCount avis
+            <button class="btn-rate-open" @onclick="ToggleReviews" style="background:none; border:none; color:var(--text-muted); font-size:0.8rem; cursor:pointer; text-decoration: underline;">
+                @(_productReviews.Count) avis
             </button>
         </div>
 
@@ -63,27 +66,140 @@
                 </span>
             </div>
 
-            <button class="btn-add-cart" disabled="@IsOutOfStock" @onclick="TriggerAddToCart">
-                @(IsOutOfStock ? "Rupture" : "+ Ajouter")
-            </button>
+            <AuthorizeView>
+                <Authorized>
+                    <button class="btn-add-cart" disabled="@IsOutOfStock" @onclick="TriggerAddToCart">
+                        @(IsOutOfStock ? "Rupture" : "+ Ajouter")
+                    </button>
+                </Authorized>
+                <NotAuthorized>
+                    <button class="btn-add-cart" style="background: var(--gray-600);" @onclick="TriggerAddToCart">
+                        Se connecter
+                    </button>
+                </NotAuthorized>
+            </AuthorizeView>
         </div>
     </div>
 </article>
 
-<!-- Modale des avis (apparaît uniquement si _showReviews est vrai) -->
 @if (_showReviews)
 {
     <div class="modal-overlay open" @onclick="ToggleReviews" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center;">
-        <div class="modal-card" @onclick:stopPropagation="true" style="background:white; padding:20px; border-radius:8px; width:90%; max-width:500px; color:black; max-height:80vh; display:flex; flex-direction:column;">
+        <div class="modal-card" @onclick:stopPropagation="true" style="background:white; padding:20px; border-radius:8px; width:90%; max-width:500px; color:black; max-height:85vh; display:flex; flex-direction:column;">
+
             <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
                 <h3 style="margin:0; font-size:1.2rem;">Avis pour @Product.Name</h3>
-                <button @onclick="ToggleReviews" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--danger);">&times;</button>
+                <button @onclick="ToggleReviews" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--danger); line-height: 1;">&times;</button>
             </header>
-            <div style="overflow-y:auto; flex:1;">
-                <p style="color:var(--text-muted); text-align:center; padding:20px;">
-                    Aucun avis détaillé n'est disponible pour le moment.
-                </p>
-                <!-- Vous pourrez injecter les avis détaillés de Firebase ici plus tard -->
+
+            <div style="overflow-y:auto; flex:1; padding-right: 5px;">
+
+                @if (_productReviews.Count == 0)
+                {
+                    <div style="text-align:center; padding:20px; color:var(--text-muted); background: #f8fafc; border-radius: 8px; margin-bottom: 15px;">
+                        <span style="font-size: 2rem; color: #cbd5e1;">⭐</span><br />
+                        0 avis. Soyez le premier à donner votre avis !
+                    </div>
+                }
+                else
+                {
+                    <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+                        @foreach (var review in _productReviews)
+                        {
+                            <div style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                                    <div>
+                                        <strong style="color: var(--dark); font-size: 0.95rem;">@(string.IsNullOrWhiteSpace(review.UserName) ? "Client" : review.UserName)</strong>
+                                        <span style="font-size: 0.75rem; color: var(--gray-600); margin-left: 8px;">@review.Date.ToString("dd/MM/yyyy HH:mm")</span>
+                                    </div>
+
+                                    @* ✅ VERIFICATION SOLIDE : Ignore la casse de l'email *@
+                                    @if ((!string.IsNullOrEmpty(_currentFirebaseUid) && review.UserId == _currentFirebaseUid) ||
+                                                            (!string.IsNullOrEmpty(_currentUserEmail) && review.UserEmail.Equals(_currentUserEmail, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        <div style="display: flex; gap: 10px;">
+                                            <button @onclick="() => EditReview(review)" style="background: none; border: none; color: var(--primary); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">
+                                                Modifier
+                                            </button>
+                                            <button @onclick="() => DeleteReview(review.Id)" style="background: none; border: none; color: var(--danger); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">
+                                                Supprimer
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div style="margin-bottom: 8px; font-size: 1rem;">
+                                    @for (int i = 1; i <= 5; i++)
+                                    {
+                                        <span style="color: @(i <= review.Rating ? "#f59e0b" : "#cbd5e1");">★</span>
+                                    }
+                                </div>
+
+                                <p style="margin: 0; font-size: 0.9rem; color: #334155; line-height: 1.4;">
+                                    @review.Comment
+                                </p>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <AuthorizeView>
+                    <Authorized>
+                        <div style="border-top: 1px solid #eee; padding-top: 15px;">
+                            <h4 style="margin-bottom: 10px; font-size: 1rem;">
+                                @(_reviewBeingEdited != null ? "Modifier votre avis" : "Laisser un avis")
+                            </h4>
+
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                <span style="font-size: 0.9rem; color: var(--dark);">Votre note :</span>
+                                <div style="display: flex; gap: 2px;">
+                                    @for (int i = 1; i <= 5; i++)
+                                    {
+                                        var starIndex = i;
+                                        <button type="button" @onclick="() => SetDraftRating(starIndex)"
+                                                style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1; color: @(starIndex <= _reviewDraftRating ? "#f59e0b" : "#cbd5e1");">
+                                            ★
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(_reviewErrorMessage))
+                            {
+                                <div style="color: #721c24; background: #f8d7da; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 0.85rem;">
+                                    @_reviewErrorMessage
+                                </div>
+                            }
+
+                            <textarea @bind="_reviewDraftText" placeholder="Partagez votre expérience avec ce produit..." style="width: 100%; min-height: 80px; padding: 10px; border-radius: 6px; border: 1px solid #ccc; outline: none; margin-bottom: 10px; font-family: inherit; font-size: 0.9rem; resize: vertical;"></textarea>
+
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn-add-cart" style="flex: 1; padding: 10px; font-size: 0.9rem;" @onclick="SaveReview" disabled="@(string.IsNullOrWhiteSpace(_reviewDraftText) || _isSaving)">
+                                    @if (_isSaving)
+                                    {
+                                        <span>Patientez...</span>
+                                    }
+                                    else
+                                    {
+                                        @(_reviewBeingEdited != null ? "Mettre à jour" : "Publier mon avis")
+                                    }
+                                </button>
+
+                                @if (_reviewBeingEdited != null)
+                                {
+                                    <button class="btn-add-cart" style="background: var(--gray-600); padding: 10px; font-size: 0.9rem;" @onclick="CancelEdit" disabled="@_isSaving">Annuler</button>
+                                }
+                            </div>
+                        </div>
+                    </Authorized>
+                    <NotAuthorized>
+                        <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; text-align: center;">
+                            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 10px;">Vous devez être connecté pour donner votre avis.</p>
+                            <button class="btn-add-cart" style="background: var(--gray-600); padding: 8px 16px;" @onclick="TriggerAddToCart">Se connecter</button>
+                        </div>
+                    </NotAuthorized>
+                </AuthorizeView>
+
             </div>
         </div>
     </div>
@@ -94,11 +210,226 @@
     [Parameter] public bool IsB2B { get; set; } = false;
     [Parameter] public EventCallback<Product> OnAddToCart { get; set; }
 
-    // --- Gestion de la modale des avis ---
-    private bool _showReviews = false;
-    private void ToggleReviews() => _showReviews = !_showReviews;
+    private string _currentUserEmail = "";
+    private string _currentUserName = "";
+    private string _currentFirebaseUid = "";
 
-    // --- Logique métier ---
+    private bool _showReviews = false;
+    private bool _isSaving = false;
+    private string _reviewErrorMessage = "";
+
+    private List<Review> _productReviews = new();
+    private string _reviewDraftText = "";
+    private int _reviewDraftRating = 5;
+    private Review? _reviewBeingEdited = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            // ✅ On force le nom pour qu'il ne soit jamais vide
+            _currentUserName = user.Identity.Name;
+            if (string.IsNullOrWhiteSpace(_currentUserName)) _currentUserName = "Client BothTech";
+
+            var emailClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email || c.Type == "email");
+            _currentUserEmail = emailClaim?.Value ?? "";
+
+            // ✅ Récupération ultra-sécurisée de l'UID Firebase directement depuis les Claims Auth0/Google
+            var uidClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier || c.Type == "user_id" || c.Type == "sub");
+            if (uidClaim != null) _currentFirebaseUid = uidClaim.Value;
+        }
+
+        LoadLocalReviews();
+    }
+
+    protected override void OnParametersSet()
+    {
+        LoadLocalReviews();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && string.IsNullOrEmpty(_currentFirebaseUid))
+        {
+            try
+            {
+                _currentFirebaseUid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+                if (!string.IsNullOrEmpty(_currentFirebaseUid)) StateHasChanged();
+            }
+            catch { }
+        }
+    }
+
+    private void LoadLocalReviews()
+    {
+        if (Product.Reviews != null)
+        {
+            _productReviews = Product.Reviews.Values.OrderByDescending(r => r.Date).ToList();
+        }
+    }
+
+    private void ToggleReviews()
+    {
+        _showReviews = !_showReviews;
+        if (!_showReviews) CancelEdit();
+        if (_showReviews) LoadLocalReviews();
+    }
+
+    private void SetDraftRating(int rating) => _reviewDraftRating = rating;
+
+    private void EditReview(Review review)
+    {
+        _reviewBeingEdited = review;
+        _reviewDraftText = review.Comment;
+        _reviewDraftRating = review.Rating;
+        _reviewErrorMessage = "";
+    }
+
+    private void CancelEdit()
+    {
+        _reviewBeingEdited = null;
+        _reviewDraftText = "";
+        _reviewDraftRating = 5;
+        _reviewErrorMessage = "";
+    }
+
+    private async Task SaveReview()
+    {
+        if (string.IsNullOrWhiteSpace(_reviewDraftText)) return;
+        _isSaving = true;
+        _reviewErrorMessage = "";
+
+        try
+        {
+            string idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+            // On utilise l'UID trouvé au démarrage (100% fiable) ou le local storage en secours
+            string uid = _currentFirebaseUid;
+            if (string.IsNullOrEmpty(uid)) uid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+
+            if (string.IsNullOrEmpty(idToken) || string.IsNullOrEmpty(uid))
+            {
+                _reviewErrorMessage = "Session invalide. Veuillez vous déconnecter puis vous reconnecter.";
+                return;
+            }
+
+            if (_reviewBeingEdited != null)
+            {
+                _reviewBeingEdited.Comment = _reviewDraftText;
+                _reviewBeingEdited.Rating = _reviewDraftRating;
+                _reviewBeingEdited.Date = DateTime.Now;
+
+                await FirebaseService.UpdateProductReviewAsync(Product.Id, _reviewBeingEdited.Id, _reviewBeingEdited, idToken);
+            }
+            else
+            {
+                var newReview = new Review
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    UserId = uid,
+                    UserName = string.IsNullOrWhiteSpace(_currentUserName) ? "Client BothTech" : _currentUserName,
+                    UserEmail = _currentUserEmail,
+                    Comment = _reviewDraftText,
+                    Rating = _reviewDraftRating,
+                    Date = DateTime.Now
+                };
+
+                if (Product.Reviews == null) Product.Reviews = new Dictionary<string, Review>();
+                Product.Reviews[newReview.Id] = newReview;
+
+                await FirebaseService.AddProductReviewAsync(Product.Id, newReview, idToken);
+            }
+
+            UpdateAverageRating();
+            LoadLocalReviews();
+            CancelEdit();
+        }
+        catch (Exception ex)
+        {
+            if (Product.Reviews != null && Product.Reviews.Values.Any(r => r.Comment == _reviewDraftText))
+            {
+                _reviewErrorMessage = "";
+                UpdateAverageRating();
+                LoadLocalReviews();
+                CancelEdit();
+            }
+            else if (ex.Message.Contains("Unauthorized") || ex.Message.Contains("401"))
+            {
+                _reviewErrorMessage = "Votre session a expiré (1h). Veuillez vous déconnecter et vous reconnecter.";
+            }
+            else
+            {
+                _reviewErrorMessage = $"Erreur Firebase : {ex.Message}";
+            }
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task DeleteReview(string reviewId)
+    {
+        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Voulez-vous vraiment supprimer cet avis ?");
+        if (!confirm) return;
+
+        _reviewErrorMessage = "";
+
+        try
+        {
+            string idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+            if (string.IsNullOrEmpty(idToken))
+            {
+                _reviewErrorMessage = "Session invalide. Veuillez vous reconnecter.";
+                StateHasChanged();
+                return;
+            }
+
+            await FirebaseService.DeleteProductReviewAsync(Product.Id, reviewId, idToken);
+
+            if (Product.Reviews != null && Product.Reviews.ContainsKey(reviewId))
+            {
+                Product.Reviews.Remove(reviewId);
+            }
+
+            UpdateAverageRating();
+            LoadLocalReviews();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("Unauthorized") || ex.Message.Contains("401"))
+            {
+                _reviewErrorMessage = "Session expirée. Veuillez vous reconnecter.";
+            }
+            else
+            {
+                _reviewErrorMessage = $"Erreur suppression : {ex.Message}";
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateAverageRating()
+    {
+        if (Product.Reviews != null && Product.Reviews.Any())
+        {
+            Product.RatingCount = Product.Reviews.Count;
+            Product.RatingTotal = Product.Reviews.Values.Sum(r => r.Rating);
+            Product.AverageRating = Math.Round((double)Product.RatingTotal / Product.RatingCount, 1);
+        }
+        else
+        {
+            Product.RatingCount = 0;
+            Product.RatingTotal = 0;
+            Product.AverageRating = 0;
+        }
+    }
+
     private bool IsOutOfStock => Product.Quantity <= 0;
     private bool HasB2bPrice => IsB2B && Product.PartnerPrice.HasValue && Product.PartnerPrice > 0;
     private int FinalPrice => HasB2bPrice ? Product.PartnerPrice.Value : Product.Price;

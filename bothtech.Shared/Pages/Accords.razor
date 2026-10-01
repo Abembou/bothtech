@@ -1,0 +1,239 @@
+﻿@page "/accords"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Services
+@inject FirebaseService FirebaseService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Matrice des Rôles & Permissions | Console Admin</PageTitle>
+
+<div style="background: transparent; padding: 20px; margin: 0; overflow-x: hidden; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- EN-TÊTE DE LA PAGE -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <h1 style="font-size: 1.5rem; color: var(--primary); margin: 0; font-weight: 800;">Matrice des Rôles & Permissions</h1>
+            <p style="color: var(--text-muted); margin: 5px 0 0 0; font-size: 0.9rem;">Configurez les droits d'accès granulaires pour chaque profil de l'organisation.</p>
+        </div>
+        <button class="btn btn-primary" @onclick="SaveRolesMatrixAsync" disabled="@isSaving" style="padding: 10px 20px; font-weight: bold; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span>@(isSaving ? "Enregistrement..." : "💾 Enregistrer les modifications")</span>
+        </button>
+    </div>
+
+    <!-- ALERTE DE SÉCURITÉ -->
+    <div style="background: var(--danger-subtle); color: var(--danger); border: 1px solid var(--danger); padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 12px;">
+        <span style="font-size: 1.2rem;">🔒</span>
+        <div>
+            <strong>Espace Hautement Sécurisé</strong><br>
+            <span style="font-size: 0.85rem; opacity: 0.9;">Toute modification de cette matrice s'applique en temps réel et régit les autorisations d'écriture et de lecture dans toute la base de données.</span>
+        </div>
+    </div>
+
+    <!-- TABLEAU DE LA MATRICE DES RÔLES -->
+    <section class="card" style="background: #fff; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+        <div class="card-header" style="padding: 15px 20px; border-bottom: 1px solid var(--border); background: #f8fafc;">
+            <h2 class="card-title" style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Tableau des Permissions Globales</h2>
+        </div>
+
+        <div class="table-responsive" style="overflow-x: auto;">
+            @if (isLoading)
+            {
+                <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+                    <p style="margin: 0; font-size: 0.9rem;">Chargement de la matrice des rôles depuis Firebase...</p>
+                </div>
+            }
+            else
+            {
+                <table class="custom-table" style="width: 100%; border-collapse: collapse; text-align: left; min-width: 800px;">
+                    <thead>
+                        <tr style="background: #f8fafc; border-bottom: 2px solid var(--border);">
+                            <th style="padding: 14px 20px; font-weight: 700; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Module / Fonctionnalité</th>
+                            @foreach (var role in availableRoles)
+                            {
+                                <th style="padding: 14px 15px; text-align: center; font-weight: 700; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">@role.Value</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var module in availableModules)
+                        {
+                            <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s;">
+                                <td style="padding: 14px 20px; font-weight: 600; color: var(--text-main); font-size: 0.95rem;">
+                                    @module.Key
+                                </td>
+                                @foreach (var role in availableRoles)
+                                {
+                                    <td style="padding: 14px 15px; text-align: center;">
+                                        <input type="checkbox"
+                                               checked="@GetPermission(role.Key, module.Value, "lecture")"
+                                               @onchange="@(e => TogglePermission(role.Key, module.Value, "lecture", e.Value))"
+                                               style="width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer;" />
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+
+    <!-- TOAST DE NOTIFICATION -->
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #1e293b; color: white; padding: 12px 24px; border-radius: 8px; z-index: 9999; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2); font-weight: 500;">
+        @toastMessage
+    </div>
+
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string toastMessage = "";
+    private string idToken = "";
+
+    // Dictionnaire global de la matrice : roles -> module -> action -> bool
+    private Dictionary<string, Dictionary<string, Dictionary<string, bool>>> rolesMatrix = new();
+
+    // Liste des rôles mis à jour avec le rôle "chauffeur"
+    private readonly Dictionary<string, string> availableRoles = new()
+    {
+        { "livreur", "Livreur" },
+        { "chauffeur", "Chauffeur" },
+        { "rh", "RH" },
+        { "commercial", "Commercial" },
+        { "comptable", "Comptable" }
+    };
+
+    // Liste de tous les modules de l'application
+    private readonly Dictionary<string, string> availableModules = new()
+    {
+        { "📦 Gestion des Stocks (Produits)", "produits" },
+        { "📋 Commandes en ligne & Ventes", "commandes" },
+        { "🛒 Vente Comptoir", "comptoir" },
+        { "🏢 Ventes B2B (Gros)", "b2b" },
+        { "💰 Comptabilité & Dépenses", "comptabilite" },
+        { "👥 Ressources Humaines (RH)", "rh" },
+        { "💬 Support & Messages Chat", "messages" },
+        { "⭐ Avis clients", "avis" }
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+                await LoadRolesMatrixAsync();
+            }
+            catch (Exception ex)
+            {
+                ShowToast("Erreur d'initialisation : " + ex.Message);
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task LoadRolesMatrixAsync()
+    {
+        try
+        {
+            string url = $"https://bothtech-4c076-default-rtdb.firebaseio.com/roles.json?auth={idToken}";
+            using var client = new HttpClient();
+            var response = await client.GetAsync(url);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string json = await response.Content.ReadAsStringAsync();
+                if (!string.IsNullOrEmpty(json) && json != "null")
+                {
+                    var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    rolesMatrix = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, Dictionary<string, bool>>>>(json, options) ?? new();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur chargement rôles : " + ex.Message);
+        }
+    }
+
+    private bool GetPermission(string role, string module, string action)
+    {
+        if (rolesMatrix.TryGetValue(role, out var roleMods) &&
+            roleMods.TryGetValue(module, out var modActions) &&
+            modActions.TryGetValue(action, out var isAllowed))
+        {
+            return isAllowed;
+        }
+        return false;
+    }
+
+    private void TogglePermission(string role, string module, string action, object? value)
+    {
+        bool isChecked = value is bool b && b;
+
+        if (!rolesMatrix.ContainsKey(role))
+            rolesMatrix[role] = new();
+
+        if (!rolesMatrix[role].ContainsKey(module))
+            rolesMatrix[role][module] = new();
+
+        rolesMatrix[role][module][action] = isChecked;
+    }
+
+    private async Task SaveRolesMatrixAsync()
+    {
+        isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient();
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+
+            // Sauvegarde rôle par rôle pour respecter les règles de Firebase ($roleId)
+            foreach (var kvp in rolesMatrix)
+            {
+                string roleKey = kvp.Key;
+                var roleData = kvp.Value;
+
+                string url = $"https://bothtech-4c076-default-rtdb.firebaseio.com/roles/{roleKey}.json?auth={idToken}";
+                string jsonPayload = System.Text.Json.JsonSerializer.Serialize(roleData, options);
+                var content = new StringContent(jsonPayload, System.Text.Encoding.UTF8, "application/json");
+
+                var response = await client.PutAsync(url, content);
+                if (!response.IsSuccessStatusCode)
+                {
+                    string err = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"Erreur pour le rôle {roleKey} : {err}");
+                }
+            }
+
+            ShowToast("✅ Matrice des rôles enregistrée avec succès !");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erreur lors de la sauvegarde : " + ex.Message);
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowToast(string msg)
+    {
+        toastMessage = msg;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            toastMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

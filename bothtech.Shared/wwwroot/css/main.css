@@ -67,6 +67,7 @@ input, textarea, select {
 img {
     pointer-events: none;
 }
+
 /* ==========================================================================
    CLASSES UTILITAIRES (Indispensables pour l'alignement)
    ========================================================================== */
@@ -110,6 +111,7 @@ img {
 .w-full {
     width: 100%;
 }
+
 /* ==========================================================================
    2. BANDEAU & EN-TÊTE
    ========================================================================== */
@@ -172,7 +174,6 @@ img {
     flex-shrink: 0;
 }
 
-/* C'EST ICI QUE VOTRE IMAGE EST STYLISÉE ! */
 .brand-logo-img {
     width: 36px;
     height: 36px;
@@ -182,11 +183,12 @@ img {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
     border: 1px solid var(--gray-200);
 }
+
 .user-avatar {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background-color: #007bff; /* Couleur de fond (ex: bleu BothTech) */
+    background-color: #007bff;
     color: white;
     display: flex;
     align-items: center;
@@ -201,6 +203,7 @@ img {
     .user-avatar:hover {
         background-color: #0056b3;
     }
+
 .brand-text {
     display: inline-flex;
     gap: 3px;
@@ -222,14 +225,12 @@ img {
     color: var(--brand-green);
 }
 
-/* La barre s'étend désormais sur toute la largeur de son conteneur */
-/* La barre s'étend sur toute la largeur avec ZERO marge externe */
 .search-box {
     order: initial;
     flex: 1;
     width: 100%;
     max-width: 100%;
-    margin: 0 !important; /* Force la suppression de toute marge externe */
+    margin: 0 !important;
 }
 
     .search-box input {
@@ -354,10 +355,11 @@ img {
         border-color: var(--primary);
     }
 
+/* --- GRILLE : 1 produit par ligne sur mobile --- */
 .products-grid {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 16px;
+    grid-template-columns: 1fr; /* Une seule colonne sur mobile */
+    gap: 14px;
     padding-bottom: 20px;
 }
 
@@ -378,35 +380,36 @@ img {
         box-shadow: var(--shadow-md);
     }
 
+/* ==========================================================================
+   IMAGES : Remplissage largeur, affichage intégral et netteté maximale
+   ========================================================================== */
 .product-image-box {
     width: 100%;
-    aspect-ratio: 1 / 1;
     background: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
     overflow: hidden;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 10px !important; /* Espace propre autour de l'image */
     border-bottom: 1px solid var(--gray-100);
 }
 
     .product-image-box img {
         width: 100% !important;
-        height: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        object-fit: cover !important;
+        height: auto !important; /* S'adapte à la proportion réelle de l'image */
+        max-height: 320px !important; /* Hauteur maximale pour garder une belle harmonie sur mobile */
+        object-fit: contain !important; /* Empêche tout rognage : l'image est 100% visible */
         object-position: center;
-        display: block;
+        display: block !important;
         transition: transform 0.3s ease;
     }
 
 .product-card:hover .product-image-box img {
-    transform: scale(1.03);
+    transform: scale(1.02);
 }
 
+/* --- TEXTES ET BOUTONS POUR 1 PRODUIT PAR LIGNE --- */
 .product-info {
     padding: 12px;
     display: flex;
@@ -428,7 +431,7 @@ img {
 }
 
 .product-specs {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     color: var(--gray-600);
     line-height: 1.3;
     display: -webkit-box;
@@ -467,7 +470,7 @@ img {
     background: #f1f5f9;
     border: 1px solid var(--gray-200);
     padding: 2px 6px;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     font-weight: 700;
     border-radius: 4px;
     color: #334155;
@@ -477,19 +480,19 @@ img {
 
 .stock-in {
     color: #16a34a;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 700;
 }
 
 .stock-warning {
     color: #d97706;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 700;
 }
 
 .stock-out {
     color: #dc2626;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 700;
 }
 
@@ -532,9 +535,9 @@ img {
     background: var(--primary);
     color: #fff;
     border: none;
-    padding: 6px 14px;
+    padding: 8px 16px;
     font-weight: 600;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     border-radius: 6px;
     cursor: pointer;
     text-align: center;
@@ -721,9 +724,9 @@ img {
 
 .chat-widget-btn {
     position: fixed;
-    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(50px + env(safe-area-inset-bottom, 0px));
     right: 20px;
-    background: var(--primary); /* Bleu du thème */
+    background: var(--primary);
     color: white;
     border: none;
     border-radius: 50%;
@@ -745,7 +748,7 @@ img {
 
 .chat-window {
     position: fixed;
-    bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(120px + env(safe-area-inset-bottom, 0px));
     right: 20px;
     width: 350px;
     max-width: calc(100vw - 40px);
@@ -769,7 +772,6 @@ img {
         pointer-events: auto;
     }
 
-/* En-tête du chat */
 .chat-header {
     background: var(--primary);
     color: white;
@@ -781,46 +783,143 @@ img {
     font-weight: bold;
 }
 
-/* Zone des messages (prend l'espace restant) */
+/* ==========================================================================
+   LAYOUT CHAT ADMIN (Style WhatsApp Web)
+   ========================================================================== */
+.chat-layout {
+    display: flex;
+    height: calc(100vh - 120px);
+    min-height: 400px;
+    background: #fff;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+}
+
+.chat-sidebar {
+    width: 320px;
+    border-right: 1px solid var(--gray-200);
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+}
+
+.chat-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.chat-item {
+    padding: 12px 15px;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+    .chat-item:hover {
+        background: #f8fafc;
+    }
+
+    .chat-item.active {
+        background: #e2e8f0;
+    }
+
+.chat-item-name {
+    font-weight: bold;
+    color: var(--text-main);
+    font-size: 1rem;
+}
+
+.chat-item-preview {
+    font-size: 0.85rem;
+    color: var(--gray-600);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 4px;
+}
+
+.chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #efeae2;
+}
+
+/* ==========================================================================
+   BULLES DE MESSAGES
+   ========================================================================== */
 .chat-messages {
     flex: 1;
     overflow-y: auto;
     padding: 15px;
     display: flex;
     flex-direction: column;
-    background-color: #ffffff;
 }
 
-/* ========================================== */
-/* LA ZONE DE SAISIE CORRIGÉE                 */
-/* ========================================== */
+.msg-bubble {
+    max-width: 80%;
+    padding: 8px 12px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+    position: relative;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+    word-wrap: break-word;
+}
 
+    .msg-bubble.admin {
+        align-self: flex-end;
+        background-color: #dcf8c6;
+        border-top-right-radius: 0;
+    }
+
+    .msg-bubble.client, .msg-bubble.user {
+        align-self: flex-start;
+        background-color: #ffffff;
+        border-top-left-radius: 0;
+    }
+
+.msg-time {
+    display: block;
+    font-size: 0.7rem;
+    color: rgba(0,0,0,0.45);
+    text-align: right;
+    margin-top: 4px;
+}
+
+/* ==========================================================================
+   ZONE DE SAISIE CHAT (Anti-Débordement Mobile)
+   ========================================================================== */
 .chat-input-area {
     display: flex;
     align-items: center;
-    padding: 10px;
-    background-color: #f0f2f5; /* Gris clair comme WhatsApp */
-    border-radius: 0 0 12px 12px;
+    padding: 8px 10px;
+    background-color: #f0f2f5;
+    border-top: 1px solid var(--gray-200);
     gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
-/* Le champ de texte pour taper le message */
 .chat-text-input {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     border: none;
     border-radius: 20px;
     padding: 10px 15px;
     outline: none;
-    font-size: 14px;
+    font-size: 0.95rem;
     background-color: white;
     box-shadow: 0 1px 1px rgba(0,0,0,0.05);
 }
 
-/* Boutons d'action (Trombone, Micro) : Discrets et sans fond */
 .chat-action-btn {
+    flex-shrink: 0;
     background: none;
     border: none;
-    font-size: 20px;
+    font-size: 1.3rem;
     cursor: pointer;
     color: #54656f;
     display: flex;
@@ -834,28 +933,32 @@ img {
         color: var(--primary);
     }
 
-/* Bouton d'envoi : Cercle bleu stylisé */
 .chat-send-btn {
+    flex-shrink: 0;
     background: var(--primary);
     color: white;
     border: none;
     border-radius: 50%;
     width: 38px;
     height: 38px;
-    font-size: 16px;
+    font-size: 1rem;
     cursor: pointer;
     display: flex;
     justify-content: center;
     align-items: center;
-    flex-shrink: 0;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     transition: transform 0.2s;
 }
 
-    .chat-send-btn:hover {
-        transform: scale(1.05);
+    .chat-send-btn:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+        box-shadow: none;
     }
-/* STYLE POUR LA PRÉVISUALISATION DE PIÈCE JOINTE */
+
+/* ==========================================================================
+   PIÈCES JOINTES ET ANIMATIONS
+   ========================================================================== */
 .chat-attachment-preview {
     display: flex;
     align-items: center;
@@ -878,7 +981,7 @@ img {
 .remove-attachment-btn {
     background: none;
     border: none;
-    color: #dc3545; /* Rouge */
+    color: #dc3545;
     font-size: 1.2rem;
     font-weight: bold;
     cursor: pointer;
@@ -900,7 +1003,7 @@ img {
 }
 
 /* ==========================================================================
-   5. ÉCRANS LARGES (Tablettes & Desktop)
+   5. ÉCRANS LARGES (Tablettes & Desktop) - Maintien du Responsive original
    ========================================================================== */
 @media (min-width: 641px) {
     body {
@@ -925,7 +1028,7 @@ img {
         flex: 1;
         min-width: 250px;
         max-width: 500px;
-        margin: 0 20px;
+        margin: 0 20px !important;
     }
 
         .search-box input {
@@ -933,10 +1036,15 @@ img {
             padding: 10px 40px 10px 16px;
         }
 
+    /* Grille fluide pour PC (multiples colonnes) */
     .products-grid {
         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: 24px;
         padding-bottom: 40px;
+    }
+
+    .product-image-box {
+        aspect-ratio: 1 / 1; /* Retour au format carré sur PC */
     }
 
     .admin-nav-btn {
@@ -967,11 +1075,26 @@ img {
         line-height: 1.4;
     }
 
+    .product-price-row {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .price-container {
+        align-items: flex-start;
+    }
+
+    .price-old {
+        font-size: 0.85rem;
+    }
+
     .product-price {
         font-size: 1.25rem;
     }
 
     .btn-add-cart {
+        width: auto;
         font-size: 0.95rem;
         padding: 8px 16px;
     }
@@ -980,5 +1103,39 @@ img {
         display: inline-block !important;
         margin-left: 6px;
     }
+}
 
+/* ==========================================================================
+   RESPONSIVE CHAT ADMIN (Mobile)
+   ========================================================================== */
+@media (max-width: 768px) {
+    .chat-layout {
+        height: calc(100vh - 80px);
+        border: none;
+        border-radius: 0;
+    }
+
+    .chat-sidebar {
+        width: 100%;
+        border-right: none;
+    }
+
+    .chat-main {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+    }
+
+    .chat-layout.chat-active .chat-sidebar {
+        display: none;
+    }
+
+    .chat-layout.chat-active .chat-main {
+        display: flex;
+    }
+
+    .mobile-back-btn {
+        display: inline-block !important;
+    }
 }
