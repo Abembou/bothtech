@@ -4,19 +4,17 @@
 @using bothtech.Shared.Services
 @using bothtech.Shared.Components
 @using Microsoft.AspNetCore.Components.Authorization
-@inject DatabaseService DbService
+@inject DataSyncService DataSync
 @inject CartService CartService
-@inject SyncService SyncService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager NavManager
-@inject AuthService AuthService
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Both Tech Burkina - Ordinateurs, Smartphones & Accessoires</PageTitle>
 
 <section class="catalogue-section">
     <header class="catalogue-header">
-     
+
         <!-- Barre de recherche -->
         <div class="search-box">
             <input type="search"
@@ -103,6 +101,7 @@
     private int ItemsPerPage { get; set; } = 8;
 
     private IEnumerable<Product> FilteredProducts => _allProducts
+        .Where(p => p.Active) // On ne montre que les produits actifs sur le catalogue public
         .Where(p => CurrentCategory == "all" || string.Equals(p.Category, CurrentCategory, StringComparison.OrdinalIgnoreCase))
         .Where(p => string.IsNullOrWhiteSpace(SearchQuery) ||
                     (p.Name != null && p.Name.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
@@ -123,7 +122,7 @@
 
         if (user.Identity != null && user.Identity.IsAuthenticated)
         {
-            _isUserB2B = user.IsInRole("detaillantB2B");
+            _isUserB2B = user.IsInRole("detaillant") || user.IsInRole("detaillantB2B");
         }
     }
 
@@ -131,25 +130,28 @@
     {
         if (firstRender)
         {
-            await LoadProducts();
+            // 1. Affichage instantané du catalogue local
+            LoadProductsLocal();
+
+            // 2. Aspiration des mises à jour en arrière-plan
             _ = SyncFirebaseDataAsync();
         }
     }
 
-    private async Task LoadProducts()
+    private void LoadProductsLocal()
     {
         try
         {
-            var rawProducts = await DbService.GetProductsAsync();
+            var rawProducts = DataSync.GetAllLocal<Product>();
             _allProducts = rawProducts;
             _isLoading = false;
-            await InvokeAsync(StateHasChanged);
+            StateHasChanged();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[DEBUG] ERREUR DB: {ex.Message}");
             _isLoading = false;
-            await InvokeAsync(StateHasChanged);
+            StateHasChanged();
         }
     }
 
@@ -160,8 +162,14 @@
 
         try
         {
-            await SyncService.SyncProductsSilentlyAsync();
-            await LoadProducts();
+            // Lance l'aspiration des produits
+            await DataSync.PullProductsFromFirebaseAsync();
+
+            // Rafraîchit l'UI avec les nouvelles données
+            await InvokeAsync(() =>
+            {
+                LoadProductsLocal();
+            });
         }
         catch (Exception ex)
         {
@@ -173,24 +181,12 @@
         }
     }
 
-    private void ChangeCategory(string category)
-    {
-        CurrentCategory = category;
-    }
-
-    private void PrevPage()
-    {
-        if (CurrentPage > 1) CurrentPage--;
-    }
-
-    private void NextPage()
-    {
-        if (CurrentPage < TotalPages) CurrentPage++;
-    }
+    private void ChangeCategory(string category) { CurrentCategory = category; }
+    private void PrevPage() { if (CurrentPage > 1) CurrentPage--; }
+    private void NextPage() { if (CurrentPage < TotalPages) CurrentPage++; }
 
     private async Task HandleAddToCart(Product product)
     {
-        // Vérification persistante (évite les faux retours au login après un rafraîchissement)
         bool isConnected = false;
         try
         {
@@ -205,17 +201,16 @@
             return;
         }
 
-        // Si connecté, ajout au panier
         string message = CartService.AddToCart(product, null);
         await ShowToast(message);
     }
-   
+
     private async Task ShowToast(string message)
     {
         _toastMessage = message;
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
         await Task.Delay(3000);
         _toastMessage = "";
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
     }
 }

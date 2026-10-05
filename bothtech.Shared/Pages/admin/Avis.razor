@@ -1,10 +1,13 @@
-﻿@page "/avis"
-@layout AdminLayout
+﻿@page "/admin/avis"
+@layout bothtech.Shared.Layout.AdminLayout
 @using bothtech.Shared.Models
 @using bothtech.Shared.Services
-@inject FirebaseService FirebaseService
+@using System.Text.Json
+@inject DataSyncService DataSync
 @inject NavigationManager NavManager
 @inject IJSRuntime JSRuntime
+
+<PageTitle>Avis Clients | Console Admin</PageTitle>
 
 <div style="background: transparent; padding: 20px; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); margin: 0; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif;">
 
@@ -12,7 +15,7 @@
     {
         <div style="text-align: center; padding: 40px; color: var(--text-muted);">
             <div style="width: 30px; height: 30px; border: 3px solid #ccc; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px;"></div>
-            Chargement des avis clients...
+            Chargement des avis...
         </div>
     }
     else
@@ -65,7 +68,14 @@
                                             <p style="margin:0; font-size:0.85rem; line-height:1.4; color:var(--text-main);">@review.Comment</p>
                                         </td>
                                         <td style="padding: 12px 10px; border-bottom: 1px solid var(--border); text-align: right;">
-                                            <button class="btn btn-outline" @onclick="() => DeleteReview(review.ProductId, review.ReviewId)" style="color:var(--danger); border-color:var(--danger-subtle); padding:4px 8px; font-size:0.8rem; cursor:pointer;">Supprimer</button>
+                                            @if (canDeleteAvis)
+                                            {
+                                                <button class="btn btn-outline" @onclick="() => DeleteReviewLocal(review.ProductId, review.ReviewId)" style="color:var(--danger); border-color:var(--danger-subtle); padding:4px 8px; font-size:0.8rem; cursor:pointer;">Supprimer</button>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge badge-secondary" style="padding: 4px 8px; background: #e2e8f0; color: #475569; border-radius: 6px; font-size: 0.75rem;">Lecture Seule</span>
+                                            }
                                         </td>
                                     </tr>
                                 }
@@ -77,8 +87,26 @@
         </div>
     }
 
-    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">@toastMessage</div>
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 12px 24px; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">@toastMessage</div>
 </div>
+
+<style>
+    @@media (max-width: 768px) {
+        .hide-mobile {
+            display: none !important;
+        }
+    }
+
+    @@keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+</style>
 
 @code {
     private bool isLoading = true;
@@ -86,6 +114,12 @@
     private string toastMessage = "";
     private string userRole = "client";
     private string idToken = "";
+
+    // Gestion des permissions
+    private bool isAdminOrMaintenance = false;
+    private bool canReadAvis = false;
+    private bool canDeleteAvis = false;
+    private Dictionary<string, Dictionary<string, bool>> currentPermissions = new();
 
     private List<AdminReviewItem> allReviews = new();
 
@@ -109,36 +143,135 @@
         {
             try
             {
-                userRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client";
+                userRole = (await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client").ToLower().Trim();
                 idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
 
-                if (userRole == "client" || userRole == "detaillant")
+                isAdminOrMaintenance = (userRole == "admin" || userRole == "maintenance");
+
+                if (!isAdminOrMaintenance && userRole != "client")
+                {
+                    LoadUserPermissionsLocal(userRole);
+                }
+
+                canReadAvis = HasPerm("avis", "lecture");
+                canDeleteAvis = HasPerm("avis", "supprimer");
+
+                // Expulsion si aucun droit de lecture
+                if (userRole == "client" || (!isAdminOrMaintenance && !canReadAvis))
                 {
                     NavManager.NavigateTo("/", true);
                     return;
                 }
 
-                await LoadReviewsAsync();
+                // 1. Lecture instantanée depuis SQLite
+                LoadLocalReviews();
+
+                // 2. Déclenchement du moteur d'envoi en arrière-plan
+                _ = DataSync.PushPendingOperationsAsync(idToken);
+
+                // 3. Aspiration des produits (qui contiennent les avis) en arrière-plan
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await DataSync.PullProductsFromFirebaseAsync();
+                        await InvokeAsync(() =>
+                        {
+                            LoadLocalReviews();
+                            StateHasChanged();
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Erreur Pull Avis (Products) : " + ex.Message);
+                    }
+                });
             }
-            catch
+            catch (Microsoft.AspNetCore.Components.NavigationException)
             {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Erreur Init Avis : " + ex.Message);
                 NavManager.NavigateTo("/", true);
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
             }
         }
     }
 
-    private async Task LoadReviewsAsync()
+    private void LoadUserPermissionsLocal(string role)
     {
-        isLoading = true;
-        StateHasChanged();
         try
         {
-            var products = await FirebaseService.GetProductsAsync();
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+            string cleanRole = role.ToLower().Trim();
+            var myRoleConfig = localRoles.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == cleanRole);
+
+            if (myRoleConfig != null && !string.IsNullOrEmpty(myRoleConfig.PermissionsJson))
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(myRoleConfig.PermissionsJson, options);
+
+                if (parsed != null && parsed.Count > 0)
+                {
+                    currentPermissions = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var module in parsed)
+                    {
+                        var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var action in module.Value)
+                        {
+                            actionDict[action.Key] = action.Value;
+                        }
+                        currentPermissions[module.Key] = actionDict;
+                    }
+                }
+                else currentPermissions = new();
+            }
+            else currentPermissions = new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture permissions avis : " + ex.Message);
+            currentPermissions = new();
+        }
+    }
+
+    private bool HasPerm(string module, string action)
+    {
+        if (isAdminOrMaintenance) return true;
+
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            string safeModule = module.ToLower();
+            if ((userRole == "commercial" || userRole == "comptable") && safeModule == "avis") return true;
+            return false;
+        }
+
+        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
+        {
+            return allowed;
+        }
+
+        return false;
+    }
+
+    // ===================================================================
+    // LECTURE 100% LOCALE DES AVIS (DEPUIS LE CATALOGUE SQLITE)
+    // ===================================================================
+    private void LoadLocalReviews()
+    {
+        try
+        {
+            var localProducts = DataSync.GetAllLocal<Product>() ?? new List<Product>();
             allReviews.Clear();
 
-            foreach (var p in products)
+            foreach (var p in localProducts)
             {
-                // Note : On gère à la fois Reviews (Dictionnaire) et on s'assure de la compatibilité
                 if (p.Reviews != null)
                 {
                     foreach (var revKv in p.Reviews)
@@ -152,7 +285,7 @@
                             Author = !string.IsNullOrEmpty(rev.UserName) ? rev.UserName : (!string.IsNullOrEmpty(rev.UserEmail) ? rev.UserEmail : "Client Anonyme"),
                             Comment = rev.Comment ?? "",
                             Rating = rev.Rating > 0 ? rev.Rating : 5,
-                            Date = rev.Date != default ? rev.Date : DateTime.Now
+                            Date = rev.DisplayDate
                         });
                     }
                 }
@@ -163,25 +296,50 @@
         }
         catch (Exception ex)
         {
-            ShowToast("Erreur de chargement des avis : " + ex.Message);
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
+            Console.WriteLine("Erreur de lecture locale des avis : " + ex.Message);
         }
     }
 
-    private async Task DeleteReview(string productId, string reviewId)
+    // ===================================================================
+    // SUPPRESSION OFFLINE D'UN AVIS SÉCURISÉE
+    // ===================================================================
+    private async Task DeleteReviewLocal(string productId, string reviewId)
     {
+        if (!canDeleteAvis)
+        {
+            ShowToast("❌ Action non autorisée.");
+            return;
+        }
+
         bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Voulez-vous vraiment supprimer cet avis ?");
         if (!confirm) return;
 
         try
         {
-            await FirebaseService.DeleteProductReviewAsync(productId, reviewId, idToken);
-            ShowToast("✅ Avis supprimé avec succès.");
-            await LoadReviewsAsync();
+            // 1. Suppression optimiste : On retire l'avis de la vue immédiatement sans recharger toute la DB
+            allReviews.RemoveAll(r => r.ProductId == productId && r.ReviewId == reviewId);
+            StateHasChanged();
+
+            // 2. Mise à jour de SQLite
+            var localProducts = DataSync.GetAllLocal<Product>() ?? new List<Product>();
+            var product = localProducts.FirstOrDefault(p => p.Id == productId);
+
+            if (product != null && product.Reviews != null && product.Reviews.ContainsKey(reviewId))
+            {
+                product.Reviews.Remove(reviewId);
+                DataSync.SaveLocal(product);
+
+                // 3. Mise dans la file d'attente Firebase
+                // On met à jour l'intégralité du produit pour s'assurer que l'avis disparaît de la structure
+                DataSync.EnqueueOperation("Product", productId, "UPDATE", product);
+
+                // Fallback optionnel pour cibler spécifiquement le noeud Firebase
+                string entityPath = $"{productId}/Reviews/{reviewId}";
+                DataSync.EnqueueOperation<object>("Product", entityPath, "DELETE", null);
+            }
+
+            ShowToast("✅ Avis supprimé.");
+            _ = DataSync.PushPendingOperationsAsync(idToken);
         }
         catch (Exception ex)
         {

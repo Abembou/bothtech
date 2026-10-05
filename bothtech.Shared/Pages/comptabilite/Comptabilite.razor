@@ -1,0 +1,523 @@
+﻿@page "/comptabilite/comptabilite"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using bothtech.Shared.Services
+@using System.Globalization
+@using System.Text.Json
+@inject DataSyncService DataSync
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+
+<PageTitle>Comptabilité | Console Admin</PageTitle>
+
+<style>
+    .rh-tab-btn {
+        padding: 10px 20px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        background: transparent;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: 0.3s;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+        .rh-tab-btn:hover {
+            background: #f1f5f9;
+            color: var(--primary);
+        }
+
+        .rh-tab-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+
+    .kpi-card {
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+    }
+
+    .kpi-title {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-weight: 700;
+    }
+
+    .kpi-value {
+        font-size: 1.8rem;
+        font-weight: 900;
+        display: block;
+        margin-top: 5px;
+    }
+
+    @@media (max-width: 768px) {
+        .hide-mobile {
+            display: none !important;
+        }
+    }
+</style>
+
+<div style="background: transparent; padding: 20px; margin: 0; overflow-x: hidden; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- ONGLETS COMPTABILITÉ -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+        <button class="rh-tab-btn @(ActiveTab == "journal" ? "active" : "")" @onclick='() => { ActiveTab = "journal"; }'>Grand Livre de Caisse</button>
+        @if (canAddCompta)
+        {
+            <button class="rh-tab-btn @(ActiveTab == "depenses" ? "active" : "")" @onclick='() => { ActiveTab = "depenses"; }'>Saisie des Dépenses</button>
+        }
+    </div>
+
+    @if (ActiveTab == "journal")
+    {
+        <!-- TAB 1 : GRAND LIVRE DE CAISSE -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-title">Total des Entrées (Ventes)</span>
+                <span class="kpi-value" style="color: var(--success);">@FormatMoney(TotalEntrees)</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-title">Total des Sorties (Dépenses)</span>
+                <span class="kpi-value" style="color: var(--danger);">@FormatMoney(TotalSorties)</span>
+            </div>
+            <div class="kpi-card" style="border: 2px solid var(--primary);">
+                <span class="kpi-title">SOLDE GLOBAL EN CAISSE</span>
+                <span class="kpi-value" style="color: var(--primary);">@FormatMoney(SoldeGlobal)</span>
+            </div>
+        </div>
+
+        <section class="card">
+            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
+                <h2 class="card-title" style="margin:0;">Journal des Opérations</h2>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <input type="month" value="@FilterMonth" @onchange='e => { FilterMonth = e.Value?.ToString() ?? ""; LoadJournal(); }' class="form-control" style="max-width: 200px;">
+                    <button class="btn btn-outline" style="padding: 6px 12px; background:var(--primary-subtle); color:var(--primary); font-weight:bold; cursor:pointer; border:none;" @onclick="LoadJournal">🔄 Rafraîchir</button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="custom-table" style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border);">
+                            <th style="padding:12px; text-align:left;">Date</th>
+                            <th style="padding:12px; text-align:left;">Type d'Opération</th>
+                            <th style="padding:12px; text-align:left;">Libellé / Motif</th>
+                            <th style="padding:12px; text-align: right; color: var(--success);">Entrée (+)</th>
+                            <th style="padding:12px; text-align: right; color: var(--danger);">Sortie (-)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoadingJournal)
+                        {
+                            <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Chargement du journal...</td></tr>
+                        }
+                        else if (!FilteredOperations.Any())
+                        {
+                            <tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-muted);">Aucune opération comptable pour ce mois.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var op in FilteredOperations)
+                            {
+                                <tr style="background-color: @(op.IsEntree ? "#f0fdf4" : "#fef2f2"); border-bottom: 1px solid var(--border);">
+                                    <td style="padding:12px;"><small>@FormatDate(op.Date)</small></td>
+                                    <td style="padding:12px;"><b>@(op.IsEntree ? "Entrée" : "Sortie")</b><br><small style="color:var(--text-muted);">@op.Categorie</small></td>
+                                    <td style="padding:12px;">@op.Libelle</td>
+                                    <td style="padding:12px; text-align:right; font-weight:bold; color:var(--success);">@(op.IsEntree? FormatMoney(op.Montant) : "-")</td>
+                                    <td style="padding:12px; text-align:right; font-weight:bold; color:var(--danger);">@(!op.IsEntree ? FormatMoney(op.Montant) : "-")</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+    else if (ActiveTab == "depenses" && canAddCompta)
+    {
+        <!-- TAB 2 : SAISIE DES DÉPENSES -->
+        <div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+            <section class="card">
+                <div class="card-header" style="border-bottom:1px solid var(--border); padding-bottom:15px; margin-bottom:15px;">
+                    <h2 class="card-title" style="margin:0;">💸 Enregistrer une Dépense</h2>
+                </div>
+                <div class="card-body">
+                    <EditForm Model="NewExpenseForm" OnValidSubmit="SaveExpenseOfflineFirst">
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label style="font-weight:600; margin-bottom:5px; display:block;">Catégorie de la dépense *</label>
+                            <InputSelect @bind-Value="NewExpenseForm.Categorie" class="form-control" required>
+                                <option value="Achat Stock / Fournisseur">Achat Stock / Fournisseur</option>
+                                <option value="Loyer">Loyer Boutique</option>
+                                <option value="Électricité / Eau">Électricité / Eau (SONABEL, ONEA)</option>
+                                <option value="Carburant / Transport">Carburant / Transport</option>
+                                <option value="Salaire Manuel">Salaire Manuel (RH)</option>
+                                <option value="Frais Bancaires">Frais Bancaires / Mobile Money</option>
+                                <option value="Autre">Autre Dépense</option>
+                            </InputSelect>
+                        </div>
+                        <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom:15px;">
+                            <div class="form-group">
+                                <label style="font-weight:600; margin-bottom:5px; display:block;">Montant (FCFA) *</label>
+                                <InputNumber @bind-Value="NewExpenseForm.Montant" class="form-control" required min="1" />
+                            </div>
+                            <div class="form-group">
+                                <label style="font-weight:600; margin-bottom:5px; display:block;">Date *</label>
+                                <InputDate @bind-Value="NewExpenseForm.DateSortie" class="form-control" required />
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label style="font-weight:600; margin-bottom:5px; display:block;">Bénéficiaire / Destinataire *</label>
+                            <InputText @bind-Value="NewExpenseForm.Beneficiaire" class="form-control" placeholder="Ex: Jean, SONABEL..." required />
+                        </div>
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label style="font-weight:600; margin-bottom:5px; display:block;">Motif / Libellé détaillé *</label>
+                            <InputText @bind-Value="NewExpenseForm.Motif" class="form-control" required />
+                        </div>
+                        <div class="form-group" style="margin-bottom:20px;">
+                            <label style="font-weight:600; margin-bottom:5px; display:block;">Moyen de Paiement *</label>
+                            <InputSelect @bind-Value="NewExpenseForm.MoyenPaiement" class="form-control" required>
+                                <option value="Espèces">Caisse (Espèces)</option>
+                                <option value="Orange Money">Orange Money</option>
+                                <option value="Moov Money">Moov Money</option>
+                                <option value="Virement Bancaire">Virement Bancaire</option>
+                            </InputSelect>
+                        </div>
+                        <button type="submit" disabled="@IsSaving" class="btn btn-primary" style="width: 100%; background:var(--danger); color:white; border:none; cursor:pointer; padding: 14px; font-size: 1.1rem; font-weight: bold; border-radius:8px;">
+                            @(IsSaving ? "Enregistrement..." : "Soumettre la Dépense")
+                        </button>
+                    </EditForm>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(ToastMessage))
+    {
+        <div id="toast" style="display:block; position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 12px 24px; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">@ToastMessage</div>
+    }
+</div>
+
+@code {
+    private string ActiveTab = "journal";
+    private bool IsLoadingJournal = true;
+    private bool IsSaving = false;
+    private string FilterMonth = DateTime.Now.ToString("yyyy-MM");
+    private string ToastMessage = "";
+
+    // Auth & Permissions
+    private string currentAdminUid = "";
+    private string idToken = "";
+    private string CurrentUserRole = "client";
+
+    private bool isAdminOrMaintenance = false;
+    private bool canReadCompta = false;
+    private bool canAddCompta = false;
+    private Dictionary<string, Dictionary<string, bool>> currentPermissions = new();
+
+    public class AccountingOperation
+    {
+        public long Date { get; set; }
+        public bool IsEntree { get; set; }
+        public string Categorie { get; set; } = "";
+        public string Libelle { get; set; } = "";
+        public decimal Montant { get; set; }
+    }
+
+    public class ExpenseFormItem
+    {
+        public string Categorie { get; set; } = "Achat Stock / Fournisseur";
+        public decimal Montant { get; set; }
+        public DateTime DateSortie { get; set; } = DateTime.Today;
+        public string Beneficiaire { get; set; } = "";
+        public string Motif { get; set; } = "";
+        public string MoyenPaiement { get; set; } = "Espèces";
+    }
+
+    private ExpenseFormItem NewExpenseForm = new();
+    private List<AccountingOperation> JournalOperations = new();
+
+    // Filtre sur le mois sélectionné
+    private IEnumerable<AccountingOperation> FilteredOperations => JournalOperations.Where(o =>
+    {
+        var opDate = DateTimeOffset.FromUnixTimeMilliseconds(o.Date).LocalDateTime;
+        return opDate.ToString("yyyy-MM") == FilterMonth;
+    });
+
+    // KPIs basés sur le mois filtré
+    private decimal TotalEntrees => FilteredOperations.Where(o => o.IsEntree).Sum(o => o.Montant);
+    private decimal TotalSorties => FilteredOperations.Where(o => !o.IsEntree).Sum(o => o.Montant);
+    private decimal SoldeGlobal => TotalEntrees - TotalSorties;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                currentAdminUid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+                CurrentUserRole = (await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client").ToLower().Trim();
+
+                isAdminOrMaintenance = (CurrentUserRole == "admin" || CurrentUserRole == "maintenance");
+
+                if (!isAdminOrMaintenance && CurrentUserRole != "client")
+                {
+                    LoadUserPermissionsLocal(CurrentUserRole);
+                }
+
+                canReadCompta = HasPerm("comptabilite", "lecture");
+                canAddCompta = HasPerm("comptabilite", "ajouter");
+
+                // Vérification de sécurité stricte (Expulsion)
+                if (CurrentUserRole == "client" || (!isAdminOrMaintenance && !canReadCompta))
+                {
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                // Chargement instantané depuis SQLite
+                LoadJournal();
+
+                // On lance le moteur de synchro en fond
+                _ = DataSync.PushPendingOperationsAsync(idToken);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Erreur Init Compta : " + ex.Message);
+                NavManager.NavigateTo("/", true);
+            }
+            finally
+            {
+                IsLoadingJournal = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void LoadUserPermissionsLocal(string role)
+    {
+        try
+        {
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+            string cleanRole = role.ToLower().Trim();
+            var myRoleConfig = localRoles.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == cleanRole);
+
+            if (myRoleConfig != null && !string.IsNullOrEmpty(myRoleConfig.PermissionsJson))
+            {
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(myRoleConfig.PermissionsJson, options);
+
+                if (parsed != null && parsed.Count > 0)
+                {
+                    currentPermissions = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var module in parsed)
+                    {
+                        var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var action in module.Value)
+                        {
+                            actionDict[action.Key] = action.Value;
+                        }
+                        currentPermissions[module.Key] = actionDict;
+                    }
+                }
+                else currentPermissions = new();
+            }
+            else currentPermissions = new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture permissions compta : " + ex.Message);
+            currentPermissions = new();
+        }
+    }
+
+    private bool HasPerm(string module, string action)
+    {
+        if (isAdminOrMaintenance) return true;
+
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            string safeModule = module.ToLower();
+            if (CurrentUserRole == "comptable" && safeModule == "comptabilite") return true;
+            return false;
+        }
+
+        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
+        {
+            return allowed;
+        }
+
+        return false;
+    }
+
+    // ===================================================================
+    // LECTURE 100% LOCALE (Fusion Ventes + Dépenses)
+    // ===================================================================
+    private void LoadJournal()
+    {
+        IsLoadingJournal = true;
+        StateHasChanged();
+
+        try
+        {
+            JournalOperations.Clear();
+
+            // 1. Récupération des Ventes Terminées (Entrées)
+            var localOrders = DataSync.GetAllLocal<OrderModel>();
+            var paidOrders = localOrders.Where(o => o.Status == "validee" || o.Status == "livree" || o.Type == "comptoir" || o.Status == "payee");
+
+            foreach (var order in paidOrders)
+            {
+                // On convertit les décimaux nullables en décimaux stricts (0 si c'est null)
+                decimal avanceValue = (decimal)(order.Avance ?? 0);
+                decimal totalValue = (decimal)(order.Total ?? 0);
+
+                // On prend l'Avance si elle existe et est > 0, sinon on prend le Total
+                decimal amountPaid = (avanceValue > 0) ? avanceValue : totalValue;
+
+                if (amountPaid <= 0) continue;
+
+                JournalOperations.Add(new AccountingOperation
+                {
+                    Date = order.CreatedAt,
+                    IsEntree = true,
+                    Categorie = $"Vente {(order.Type == "comptoir" ? "Comptoir" : "B2B/En Ligne")}",
+                    Libelle = $"Facture #{order.Id?.Substring(0, 6).ToUpper()} - {(string.IsNullOrEmpty(order.ClientName) ? "Client" : order.ClientName)}",
+                    Montant = amountPaid
+                });
+            }
+
+            // 2. Récupération des Dépenses (Sorties)
+            var localExpenses = DataSync.GetAllLocal<ExpenseModel>();
+
+            foreach (var exp in localExpenses)
+            {
+                JournalOperations.Add(new AccountingOperation
+                {
+                    Date = exp.Date,
+                    IsEntree = false,
+                    Categorie = exp.Category ?? "Autre",
+                    Libelle = $"À: {exp.Beneficiary} - {exp.Reason}",
+                    Montant = exp.Amount
+                });
+            }
+
+            // 3. Tri global du plus récent au plus ancien
+            JournalOperations = JournalOperations.OrderByDescending(o => o.Date).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur de chargement du journal : " + ex.Message);
+        }
+        finally
+        {
+            IsLoadingJournal = false;
+            StateHasChanged();
+        }
+    }
+
+    // ===================================================================
+    // CRÉATION DE DÉPENSE (OFFLINE-FIRST / OUTBOX)
+    // ===================================================================
+    private void SaveExpenseOfflineFirst()
+    {
+        if (!canAddCompta)
+        {
+            ShowToast("❌ Action non autorisée.");
+            return;
+        }
+
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            // 1. Préparation de l'objet Expense
+            var newExpense = new ExpenseModel
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Category = NewExpenseForm.Categorie,
+                Amount = NewExpenseForm.Montant,
+                Date = new DateTimeOffset(NewExpenseForm.DateSortie).ToUnixTimeMilliseconds(),
+                Beneficiary = NewExpenseForm.Beneficiaire,
+                Reason = NewExpenseForm.Motif,
+                PaymentMethod = NewExpenseForm.MoyenPaiement,
+                AgentId = currentAdminUid
+            };
+
+            // 2. Sauvegarde dans SQLite (Local)
+            DataSync.SaveLocal(newExpense);
+
+            // 3. Mise dans la file d'attente (Outbox Firebase)
+            DataSync.EnqueueOperation("ExpenseModel", newExpense.Id, "CREATE", newExpense);
+
+            // 4. Déclenchement du moteur de synchronisation
+            if (!string.IsNullOrEmpty(idToken))
+            {
+                _ = DataSync.PushPendingOperationsAsync(idToken);
+            }
+
+            // 5. Mise à jour de l'UI
+            NewExpenseForm = new ExpenseFormItem(); // Réinitialise le formulaire
+            ActiveTab = "journal"; // Bascule sur le grand livre
+            LoadJournal(); // Recharge les données locales pour afficher la nouvelle ligne
+
+            ShowToast("✅ Dépense enregistrée (Synchronisation en cours)");
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"❌ Erreur : {ex.Message}");
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    // ===================================================================
+    // UTILITAIRES & FORMATAGE
+    // ===================================================================
+    private string FormatMoney(decimal amount)
+    {
+        var nfi = (NumberFormatInfo)CultureInfo.GetCultureInfo("fr-FR").NumberFormat.Clone();
+        nfi.NumberGroupSeparator = " ";
+        return amount.ToString("N0", nfi) + " FCFA";
+    }
+
+    private string FormatDate(long timestamp)
+    {
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(timestamp).LocalDateTime.ToString("dd/MM/yyyy");
+        }
+        catch
+        {
+            return "-";
+        }
+    }
+
+    private void ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            ToastMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

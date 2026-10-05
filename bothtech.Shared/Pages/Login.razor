@@ -4,6 +4,7 @@
 @inject AuthService AuthService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
+@inject DataSyncService DataSync
 
 <PageTitle>Connexion - Both Tech Burkina</PageTitle>
 
@@ -14,33 +15,110 @@
     </header>
 
     <div class="modal-body">
-        <p class="text-center text-muted mb-24" style="line-height: 1.5; font-size: 0.95rem; text-align: center; margin-bottom: 24px;">
-            Connectez-vous avec votre compte sécurisé. S'il n'existe pas, il sera créé automatiquement.
-        </p>
 
-        @if (!string.IsNullOrEmpty(_errorMessage))
+        @if (!_showForgotPassword)
         {
-            <div class="alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem; text-align: center;">
-                @_errorMessage
+            <!-- ========================================== -->
+            <!-- SECTION 1 : CLIENTS (CONNEXION EN LIGNE) -->
+            <!-- ========================================== -->
+            <p class="text-center text-muted mb-24" style="line-height: 1.5; font-size: 0.95rem; text-align: center; margin-bottom: 20px;">
+                <b>Espace Client</b><br />
+                Connectez-vous pour passer une commande.
+            </p>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.85rem; text-align: center;">
+                    @_errorMessage
+                </div>
+            }
+
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+                <button type="button" class="btn btn-social" @onclick="HandleGoogleLogin" disabled="@_isLoading" style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: white; font-weight: bold; cursor: pointer; transition: background 0.2s;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h5.4c-.23 1.3-1.63 3.82-5.4 3.82-3.25 0-5.9-2.7-5.9-6.05s2.65-6.05 5.9-6.05c1.86 0 3.1.8 3.8 1.47l2.13-2.05C16.5 3.5 14.4 2.6 11.8 2.6 6.6 2.6 2.4 6.8 2.4 12s4.2 9.4 9.4 9.4c5.4 0 9.02-3.8 9.02-9.17 0-.67-.07-1.12-.13-1.63z" /></svg>
+                    Continuer avec Google
+                </button>
+                <button type="button" class="btn btn-social auth0" @onclick="HandleAuth0Login" disabled="@_isLoading" style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-radius: 8px; border: 1px solid transparent; background: #000; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.57 8.05c-.32-.78-.77-1.5-1.32-2.12-.55-.63-1.2-1.16-1.95-1.58-.75-.42-1.58-.73-2.48-.94-.9-.21-1.85-.31-2.82-.31-1.85 0-3.51.3-4.99.91-1.48.61-2.77 1.48-3.86 2.61-1.09 1.13-1.94 2.49-2.55 4.09-.61 1.6-.92 3.37-.92 5.31 0 1.94.31 3.71.92 5.31.61 1.6 1.46 2.96 2.55 4.09 1.09 1.13 2.38 2 3.86 2.61 1.48.61 3.14.91 4.99.91.97 0 1.92-.1 2.82-.31.9-.21 1.73-.52 2.48-.94.75-.42 1.4-.95 1.95-1.58.55-.62 1-1.34 1.32-2.12.32-.78.48-1.63.48-2.56 0-.93-.16-1.78-.48-2.56zm-9.57 9.15c-2.95 0-5.35-2.4-5.35-5.35s2.4-5.35 5.35-5.35 5.35 2.4 5.35 5.35-2.4 5.35-5.35 5.35z" /></svg>
+                    Continuer avec Auth0
+                </button>
+            </div>
+
+            <!-- SÉPARATEUR VISUEL -->
+            <div style="margin: 25px 0; text-align: center; position: relative;">
+                <hr style="border: 0; border-top: 1px solid #ddd; position: absolute; width: 100%; top: 50%; transform: translateY(-50%); margin: 0; z-index: 1;">
+                <span style="background: white; padding: 0 10px; color: #888; font-size: 0.85rem; font-weight: bold; position: relative; z-index: 2;">ESPACE ÉQUIPE</span>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- SECTION 2 : AGENTS (CONNEXION HORS-LIGNE) -->
+            <!-- ========================================== -->
+            <form @onsubmit="HandleAgentLocalLogin" @onsubmit:preventDefault="true" style="display: flex; flex-direction: column; gap: 12px;">
+
+                @if (!string.IsNullOrEmpty(authErrorMessage))
+                {
+                    <div style="background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 6px; font-size: 0.85rem; text-align: center;">
+                        @authErrorMessage
+                    </div>
+                }
+
+                <input type="email" @bind="inputEmail" placeholder="Email de l'agent" required class="form-control" style="padding: 12px; border-radius: 8px; border: 1px solid #ccc; width: 100%; box-sizing: border-box;" />
+                <input type="password" @bind="inputPassword" placeholder="Mot de passe" required class="form-control" style="padding: 12px; border-radius: 8px; border: 1px solid #ccc; width: 100%; box-sizing: border-box;" />
+
+                <div style="text-align: right;">
+                    <a href="javascript:void(0)" @onclick="ShowForgotPasswordPanel" style="font-size: 0.85rem; color: var(--primary); text-decoration: none;">Mot de passe oublié ?</a>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="background: var(--primary, #0056b3); color: white; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px;">
+                    Connexion Agent
+                </button>
+            </form>
+        }
+        else
+        {
+            <!-- ========================================== -->
+            <!-- SECTION 3 : MOT DE PASSE OUBLIÉ -->
+            <!-- ========================================== -->
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <h4 style="margin: 0; color: var(--text-main); text-align: center;">Réinitialisation</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-bottom: 10px;">
+                    Entrez l'adresse email associée à votre compte agent. Nous vous enverrons un lien sécurisé pour créer un nouveau mot de passe.
+                </p>
+
+                @if (!string.IsNullOrEmpty(authErrorMessage))
+                {
+                    <div style="background-color: @(_isResetSuccess ? "#dcf8c6" : "#f8d7da"); color: @(_isResetSuccess ? "#166534" : "#721c24"); padding: 10px; border-radius: 6px; font-size: 0.85rem; text-align: center;">
+                        @authErrorMessage
+                    </div>
+                }
+
+                <input type="email" @bind="forgotPasswordEmail" placeholder="Votre adresse email" required class="form-control" style="padding: 12px; border-radius: 8px; border: 1px solid #ccc; width: 100%; box-sizing: border-box;" />
+
+                <button type="button" @onclick="HandleForgotPassword" disabled="@_isLoading" class="btn btn-primary" style="background: var(--primary, #0056b3); color: white; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px;">
+                    @( _isLoading ? "Envoi en cours..." : "Envoyer le lien" )
+                </button>
+
+                <div style="text-align: center; margin-top: 15px;">
+                    <a href="javascript:void(0)" @onclick="HideForgotPasswordPanel" style="font-size: 0.85rem; color: var(--text-muted); text-decoration: underline;">Retour à la connexion</a>
+                </div>
             </div>
         }
-
-        <div style="display: flex; flex-direction: column; gap: 14px;">
-            <button type="button" class="btn btn-social" @onclick="HandleGoogleLogin" disabled="@_isLoading" style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: white; font-weight: bold; cursor: pointer; transition: background 0.2s;">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h5.4c-.23 1.3-1.63 3.82-5.4 3.82-3.25 0-5.9-2.7-5.9-6.05s2.65-6.05 5.9-6.05c1.86 0 3.1.8 3.8 1.47l2.13-2.05C16.5 3.5 14.4 2.6 11.8 2.6 6.6 2.6 2.4 6.8 2.4 12s4.2 9.4 9.4 9.4c5.4 0 9.02-3.8 9.02-9.17 0-.67-.07-1.12-.13-1.63z" /></svg>
-                Continuer avec Google
-            </button>
-            <button type="button" class="btn btn-social auth0" @onclick="HandleAuth0Login" disabled="@_isLoading" style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-radius: 8px; border: 1px solid transparent; background: #000; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s;">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M21.57 8.05c-.32-.78-.77-1.5-1.32-2.12-.55-.63-1.2-1.16-1.95-1.58-.75-.42-1.58-.73-2.48-.94-.9-.21-1.85-.31-2.82-.31-1.85 0-3.51.3-4.99.91-1.48.61-2.77 1.48-3.86 2.61-1.09 1.13-1.94 2.49-2.55 4.09-.61 1.6-.92 3.37-.92 5.31 0 1.94.31 3.71.92 5.31.61 1.6 1.46 2.96 2.55 4.09 1.09 1.13 2.38 2 3.86 2.61 1.48.61 3.14.91 4.99.91.97 0 1.92-.1 2.82-.31.9-.21 1.73-.52 2.48-.94.75-.42 1.4-.95 1.95-1.58.55-.62 1-1.34 1.32-2.12.32-.78.48-1.63.48-2.56 0-.93-.16-1.78-.48-2.56zm-9.57 9.15c-2.95 0-5.35-2.4-5.35-5.35s2.4-5.35 5.35-5.35 5.35 2.4 5.35 5.35-2.4 5.35-5.35 5.35z" /></svg>
-                Continuer avec Auth0
-            </button>
-        </div>
     </div>
 </div>
 
 @code {
     private string _errorMessage = "";
     private bool _isLoading = false;
+
+    // Champs de connexion
+    private string inputEmail = "";
+    private string inputPassword = "";
+    private string authErrorMessage = "";
+
+    // Champs Mot de passe oublié
+    private bool _showForgotPassword = false;
+    private bool _isResetSuccess = false;
+    private string forgotPasswordEmail = "";
 
     private async Task HandleGoogleLogin()
     {
@@ -50,6 +128,8 @@
         try
         {
             await AuthService.LoginWithGoogleAsync();
+            await DataSync.PullProductsFromFirebaseAsync();
+            NavigationManager.NavigateTo("/");
         }
         catch (Exception ex)
         {
@@ -67,10 +147,195 @@
         try
         {
             await AuthService.LoginWithAuth0Async();
+            await DataSync.PullProductsFromFirebaseAsync();
+            NavigationManager.NavigateTo("/");
         }
         catch (Exception ex)
         {
             _errorMessage = $"Erreur Auth0: {ex.Message}";
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleAgentLocalLogin()
+    {
+        authErrorMessage = "";
+
+        try
+        {
+            var localStaff = DataSync.GetAllLocal<StaffModel>()
+                                     .FirstOrDefault(s => s.Email != null && s.Email.ToLower() == inputEmail.ToLower() && s.LocalPassword == inputPassword);
+
+            if (localStaff != null)
+            {
+                if (!localStaff.Active)
+                {
+                    authErrorMessage = "Ce compte a été suspendu par l'administrateur.";
+                    return;
+                }
+
+                string currentUserId = localStaff.Id;
+                string userEmail = localStaff.Email;
+                string userName = localStaff.Name ?? "Agent";
+                string userRole = (localStaff.Role ?? "client").ToLower().Trim();
+
+                string userPhone = "";
+                string userAddress = "";
+                try { userPhone = localStaff.Phone ?? ""; } catch { }
+                try { userAddress = localStaff.Address ?? ""; } catch { }
+
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_userid", currentUserId);
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_useremail", userEmail);
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_username", userName);
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_userrole", userRole);
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_userphone", userPhone);
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "bothtech_useraddress", userAddress);
+
+                await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "bothtech_idtoken");
+
+                var user = new User { Email = userEmail, Name = userName, Role = userRole, FirebaseUid = currentUserId };
+                AuthService.RestoreSession(user);
+
+                await Task.Delay(300);
+                StateHasChanged();
+
+                string targetUrl = "/";
+
+                if (userRole == "admin" || userRole == "maintenance")
+                {
+                    targetUrl = "/admin/stock";
+                }
+                else if (userRole != "client")
+                {
+                    var allRolesConfig = DataSync.GetAllLocal<RoleConfig>();
+                    var roleConfig = allRolesConfig.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == userRole);
+
+                    Dictionary<string, Dictionary<string, bool>>? perms = null;
+
+                    if (roleConfig != null && !string.IsNullOrEmpty(roleConfig.PermissionsJson))
+                    {
+                        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var rawPerms = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(roleConfig.PermissionsJson, options);
+
+                        if (rawPerms != null)
+                        {
+                            perms = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var kvp in rawPerms)
+                            {
+                                var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var action in kvp.Value)
+                                {
+                                    actionDict[action.Key] = action.Value;
+                                }
+                                perms[kvp.Key] = actionDict;
+                            }
+                        }
+                    }
+
+                    bool CheckPerm(string module)
+                    {
+                        if (perms != null && perms.TryGetValue(module, out var actions))
+                        {
+                            return actions.Values.Any(allowed => allowed == true);
+                        }
+
+                        if (perms == null || perms.Count == 0)
+                        {
+                            if (userRole == "comptable" && module.ToLower() == "comptabilite") return true;
+                            if (userRole == "commercial" && (module.ToLower() == "produits" || module.ToLower() == "commandes" || module.ToLower() == "b2b" || module.ToLower() == "comptoir")) return true;
+                            if (userRole == "livreur" && module.ToLower() == "commandes") return true;
+                            if (userRole == "rh" && module.ToLower() == "equipe") return true;
+                            if (userRole == "secretaire" && (module.ToLower() == "commandes" || module.ToLower() == "messages")) return true;
+                        }
+                        return false;
+                    }
+
+                    if (CheckPerm("produits")) targetUrl = "/admin/stock";
+                    else if (CheckPerm("commandes") || CheckPerm("comptoir") || CheckPerm("b2b")) targetUrl = "/vente/commandes";
+                    else if (CheckPerm("comptabilite")) targetUrl = "/comptabilite/comptabilite";
+                    else if (CheckPerm("equipe")) targetUrl = "/rh/equipe";
+                    else if (CheckPerm("messages")) targetUrl = "/vente/chat";
+                    else if (CheckPerm("avis")) targetUrl = "/admin/avis";
+                    else
+                    {
+                        authErrorMessage = "Votre compte ne possède aucun droit d'accès.";
+                        await AuthService.LogoutAsync();
+                        StateHasChanged();
+                        return;
+                    }
+                }
+
+                NavigationManager.NavigateTo(targetUrl);
+            }
+            else
+            {
+                authErrorMessage = "Identifiants incorrects ou compte inexistant.";
+            }
+        }
+        catch (Exception ex)
+        {
+            authErrorMessage = "Erreur de base de données locale.";
+            Console.WriteLine($"Erreur: {ex.Message}");
+        }
+    }
+
+    private void ShowForgotPasswordPanel()
+    {
+        _showForgotPassword = true;
+        authErrorMessage = "";
+        forgotPasswordEmail = inputEmail; // Pré-remplit avec l'email déjà tapé
+        _isResetSuccess = false;
+        StateHasChanged();
+    }
+
+    private void HideForgotPasswordPanel()
+    {
+        _showForgotPassword = false;
+        authErrorMessage = "";
+        StateHasChanged();
+    }
+
+    private async Task HandleForgotPassword()
+    {
+        if (string.IsNullOrWhiteSpace(forgotPasswordEmail))
+        {
+            _isResetSuccess = false;
+            authErrorMessage = "Veuillez entrer votre adresse email.";
+            return;
+        }
+
+        _isLoading = true;
+        authErrorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            // Appel de la fonction JS de réinitialisation Firebase que nous avons ajoutée dans index.html
+            await JSRuntime.InvokeVoidAsync("window.sendPasswordReset", forgotPasswordEmail);
+
+            _isResetSuccess = true;
+            authErrorMessage = "Un email de réinitialisation vous a été envoyé. Cliquez sur le lien reçu pour modifier votre mot de passe.";
+        }
+        catch (Exception ex)
+        {
+            _isResetSuccess = false;
+            // Traduction des erreurs fréquentes de Firebase
+            if (ex.Message.Contains("user-not-found"))
+            {
+                authErrorMessage = "Compte introuvable dans le système d'authentification en ligne.";
+            }
+            else if (ex.Message.Contains("network-request-failed"))
+            {
+                authErrorMessage = "Erreur réseau. Vérifiez votre connexion internet pour effectuer cette action.";
+            }
+            else
+            {
+                authErrorMessage = $"Une erreur est survenue. Vérifiez l'adresse email.";
+            }
+        }
+        finally
+        {
             _isLoading = false;
             StateHasChanged();
         }

@@ -1,10 +1,12 @@
 ﻿@inject NavigationManager NavigationManager
 
+@inject NavigationManager NavigationManager
+
 @code {
     protected override void OnInitialized()
     {
-        // Redirige vers la page de connexion
-        // Le paramètre "true" force le rechargement si nécessaire
-        NavigationManager.NavigateTo("/login", true);
+        // Redirection douce vers l'accueil (sans le "true" pour ne pas casser le mode hors-ligne)
+        // Le visiteur pourra se connecter via la modale de la page d'accueil.
+        NavigationManager.NavigateTo("/");
     }
 }

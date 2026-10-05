@@ -1,0 +1,549 @@
+﻿@page "/rh/compteB2B"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Services
+@using bothtech.Shared.Models
+@using System.Text.Json
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+@inject DataSyncService DataSync
+
+<PageTitle>Comptes B2B | Console Admin</PageTitle>
+
+<style>
+    .rh-tab-btn {
+        padding: 10px 20px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        background: transparent;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: 0.3s;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+        .rh-tab-btn:hover {
+            background: #f1f5f9;
+            color: var(--primary);
+        }
+
+        .rh-tab-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+
+    @@media (max-width: 768px) {
+        .hide-mobile {
+            display: none !important;
+        }
+    }
+</style>
+
+<div style="background: transparent; padding: 20px; margin: 0; overflow-x: hidden; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- ONGLETS RH / B2B -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+        <NavLink href="/rh/equipe" class="rh-tab-btn">Gestion de l'Équipe</NavLink>
+        <NavLink href="/rh/compteB2B" class="rh-tab-btn active">Partenaires B2B</NavLink>
+    </div>
+
+    @if (!hasAccess)
+    {
+        <div style="text-align: center; padding: 60px 20px; background: white; border-radius: 12px; border: 1px solid var(--danger-subtle); margin-top: 20px;">
+            <h2 style="color: var(--danger); margin-bottom: 15px;">⛔ Accès Refusé</h2>
+            <p style="color: var(--text-muted); font-size: 1.1rem; margin-bottom: 20px;">
+                Votre rôle actuel (<strong>@CurrentUserRole</strong>) ne vous permet pas d'accéder au module Partenaires B2B.<br>
+                Veuillez demander à l'administrateur de cocher la permission "Lecture" pour votre rôle.
+            </p>
+            <button class="btn btn-outline" @onclick='() => NavManager.NavigateTo("/")' style="cursor:pointer;">Retour à l'accueil</button>
+        </div>
+    }
+    else
+    {
+        <!-- VUE 1 : LISTE DES DÉTAILLANTS -->
+        @if (isListView)
+        {
+            <section class="card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <h2 class="card-title hide-mobile" style="margin:0;">Liste des Détaillants Agréés</h2>
+                    <div style="display:flex; gap:10px; align-items:center; flex: 1; justify-content: flex-end;">
+                        <input type="search" @bind="searchQuery" @bind:event="oninput" class="form-control" placeholder="Rechercher nom, boutique..." style="width: 100%; max-width: 300px; padding: 8px 12px; font-size: 0.85rem;">
+                        @if (canAddB2B)
+                        {
+                            <button @onclick="OpenAddForm" class="btn btn-primary" style="font-weight: bold; background: var(--success); color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; white-space: nowrap;">
+                                + Ajouter
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="custom-table" style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr>
+                                <th style="padding:12px;">Détaillant</th>
+                                <th class="hide-mobile" style="padding:12px;">Contact</th>
+                                <th class="hide-mobile" style="padding:12px; text-align: center;">Statut</th>
+                                <th style="padding:12px; text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (isLoading)
+                            {
+                                <tr><td colspan="4" style="text-align:center; padding:30px; color:var(--text-muted);">Chargement...</td></tr>
+                            }
+                            else if (!FilteredDetaillants.Any())
+                            {
+                                <tr><td colspan="4" style="text-align:center; padding:30px; color:var(--text-muted);">Aucun détaillant trouvé.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var item in FilteredDetaillants)
+                                {
+                                    var uid = item.Key;
+                                    var u = item.Value;
+                                    bool isActive = u.Active != false;
+
+                                    <tr style="border-bottom: 1px solid var(--border);">
+                                        <td style="padding:12px;">
+                                            <b>@(u.ShopName ?? "Boutique non définie")</b><br>
+                                            <small style="color:var(--text-muted);">👤 @(u.Name ?? "Sans Nom")</small>
+                                        </td>
+                                        <td class="hide-mobile" style="padding:12px;">
+                                            📞 @(u.Phone ?? "-")<br>
+                                            <small style="color:var(--text-muted);">📍 @(u.Address ?? "-")</small><br>
+                                            <small style="color:var(--text-muted);">✉️ @u.Email</small>
+                                        </td>
+                                        <td class="hide-mobile" style="padding:12px; text-align: center;">
+                                            <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+                                                @if (canModifyB2B)
+                                                {
+                                                    <label class="switch">
+                                                        <input type="checkbox" checked="@isActive" @onchange="(e) => ToggleActiveStatus(uid, e.Value)" />
+                                                        <span class="slider"></span>
+                                                    </label>
+                                                }
+                                                <span style="font-size:0.7rem; font-weight:bold; color: @(isActive ? "var(--success)" : "var(--danger)");">
+                                                    @(isActive ? "Actif" : "Suspendu")
+                                                </span>
+                                            </div>
+                                        </td>
+                                        <td style="padding:12px; text-align:right;">
+                                            <button class="btn btn-outline btn-action" @onclick="() => PrintContract(uid)" style="margin-bottom:4px; width:100%; color:#2563eb; border-color:#93c5fd; background:#eff6ff; cursor:pointer;">📄 Contrat</button><br>
+                                            @if (canModifyB2B)
+                                            {
+                                                <button class="btn btn-outline btn-action" @onclick="() => EditDetaillant(uid)" style="margin-bottom:4px; width:100%; cursor:pointer;">Éditer</button>
+                                            }
+                                            @if (canDeleteB2B)
+                                            {
+                                                <button class="btn btn-outline btn-action" @onclick="() => RemoveDetaillant(uid)" style="color:var(--danger); border-color:var(--danger-subtle); width:100%; cursor:pointer;">Supprimer</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+        else
+        {
+            <!-- VUE 2 : FORMULAIRE DÉTAILLANT -->
+            <section class="card">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <h2 class="card-title" style="margin:0;">@formTitle</h2>
+                    <button type="button" @onclick="ShowListView" class="btn btn-outline" style="padding: 6px 12px; cursor: pointer;">🔙 Retour à la liste</button>
+                </div>
+                <div class="card-body">
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">Enregistrez un nouveau partenaire pour qu'il puisse bénéficier des prix de gros.</p>
+                    <form @onsubmit="SaveDetaillant" style="max-width: 800px; margin: 0 auto;">
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label>Email de connexion *</label>
+                            <input type="email" @bind="formData.Email" disabled="@isEditing" class="form-control" required placeholder="contact@boutique.com">
+                        </div>
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label>Nom du commerce (Boutique) *</label>
+                            <input type="text" @bind="formData.ShopName" class="form-control" required placeholder="Ex: BothTech Ouaga">
+                        </div>
+                        <div class="form-group" style="margin-bottom:15px;">
+                            <label>Nom complet du gérant *</label>
+                            <input type="text" @bind="formData.Name" class="form-control" required placeholder="Ex: Jean Dupont">
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                            <div class="form-group">
+                                <label>Téléphone *</label>
+                                <input type="tel" @bind="formData.Phone" class="form-control" required placeholder="Ex: 70 00 00 00">
+                            </div>
+                            <div class="form-group">
+                                <label>Adresse *</label>
+                                <input type="text" @bind="formData.Address" class="form-control" required placeholder="Ex: Gounguin">
+                            </div>
+                        </div>
+                        <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
+                            <input type="checkbox" id="dActive" @bind="formData.Active">
+                            <label for="dActive" style="margin:0; cursor: pointer; font-weight: bold; color: var(--success);">Compte Actif (Autorisé à acheter)</label>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="width:100%; background:var(--warning); color:white; border:none; padding: 14px; font-weight:bold; font-size: 1.05rem; cursor: pointer;">Enregistrer le Détaillant</button>
+                    </form>
+                </div>
+            </section>
+        }
+    }
+
+    <!-- ZONE D'IMPRESSION DE CONTRAT MASQUÉE -->
+    <div id="contractPrintArea" style="display:none;"></div>
+
+    <!-- TOAST DE NOTIFICATION -->
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">@toastMessage</div>
+
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isListView = true;
+    private bool isEditing = false;
+    private string formTitle = "Nouveau Détaillant Agréé";
+    private string searchQuery = "";
+    private string toastMessage = "";
+    private string idToken = "";
+
+    // Auth & Permissions
+    private bool hasAccess = true; // Empêche l'expulsion violente et affiche l'interface d'erreur
+    private string CurrentUserId = "";
+    private string CurrentUserRole = "client";
+    private bool isAdminOrMaintenance = false;
+    private bool canReadB2B = false;
+    private bool canAddB2B = false;
+    private bool canModifyB2B = false;
+    private bool canDeleteB2B = false;
+    private Dictionary<string, Dictionary<string, bool>> currentPermissions = new();
+
+    private Dictionary<string, UserB2BModel> localUsers = new();
+    private UserB2BModel formData = new();
+    private string editingUid = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+                CurrentUserId = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+                CurrentUserRole = (await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client").ToLower().Trim();
+
+                isAdminOrMaintenance = (CurrentUserRole == "admin" || CurrentUserRole == "maintenance");
+
+                if (!isAdminOrMaintenance && CurrentUserRole != "client")
+                {
+                    LoadUserPermissionsLocal(CurrentUserRole);
+                }
+
+                canReadB2B = HasPerm("b2b", "lecture");
+                canAddB2B = HasPerm("b2b", "ajouter");
+
+                canModifyB2B = HasPerm("b2b", "modifier") || canAddB2B;
+                canDeleteB2B = HasPerm("b2b", "supprimer") || canAddB2B;
+
+                // Affichage gracieux de l'erreur au lieu d'une expulsion violente
+                if (CurrentUserRole == "client" || (!isAdminOrMaintenance && !canReadB2B))
+                {
+                    hasAccess = false;
+                    isLoading = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                // 1. AFFICHER INSTANTANÉMENT CE QUI EST DANS SQLITE
+                LoadUsersAsync();
+
+                // 2. DÉMARRAGE DU MOTEUR D'ENVOI (Outbox -> Firebase) s'il y a un token
+                if (!string.IsNullOrEmpty(idToken))
+                {
+                    _ = DataSync.PushPendingOperationsAsync(idToken);
+
+                    // 3. ASPIRATION DES MISES À JOUR (Firebase -> SQLite)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await DataSync.PullStaffFromFirebaseAsync(idToken);
+
+                            await InvokeAsync(() =>
+                            {
+                                LoadUsersAsync();
+                                StateHasChanged();
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("Erreur Pull B2B : " + ex.Message);
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                // On n'expulse plus silencieusement, on affiche l'erreur
+                ShowToast("Erreur d'initialisation : " + ex.Message);
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void LoadUserPermissionsLocal(string role)
+    {
+        try
+        {
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+            string cleanRole = role.ToLower().Trim();
+            var myRoleConfig = localRoles.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == cleanRole);
+
+            if (myRoleConfig != null && !string.IsNullOrEmpty(myRoleConfig.PermissionsJson))
+            {
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(myRoleConfig.PermissionsJson, options);
+
+                if (parsed != null && parsed.Count > 0)
+                {
+                    currentPermissions = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var module in parsed)
+                    {
+                        var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var action in module.Value)
+                        {
+                            actionDict[action.Key] = action.Value;
+                        }
+                        currentPermissions[module.Key] = actionDict;
+                    }
+                }
+                else currentPermissions = new();
+            }
+            else currentPermissions = new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture permissions B2B : " + ex.Message);
+            currentPermissions = new();
+        }
+    }
+
+    private bool HasPerm(string module, string action)
+    {
+        if (isAdminOrMaintenance) return true;
+
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            string safeModule = module.ToLower();
+            if ((CurrentUserRole == "commercial" || CurrentUserRole == "comptable" || CurrentUserRole == "secretaire" || CurrentUserRole == "rh") && safeModule == "b2b") return true;
+            return false;
+        }
+
+        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
+        {
+            return allowed;
+        }
+
+        return false;
+    }
+
+    private void LoadUsersAsync()
+    {
+        try
+        {
+            var offlineUsers = DataSync.GetAllLocal<UserB2BModel>();
+
+            localUsers.Clear();
+            foreach (var user in offlineUsers)
+            {
+                if (!string.IsNullOrEmpty(user.Id))
+                {
+                    localUsers[user.Id] = user;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture SQLite (B2B) : " + ex.Message);
+        }
+    }
+
+    private IEnumerable<KeyValuePair<string, UserB2BModel>> FilteredDetaillants
+    {
+        get
+        {
+            return localUsers.Where(kvp =>
+            {
+                var u = kvp.Value;
+                if (u.Role != "detaillant") return false;
+                if (string.IsNullOrWhiteSpace(searchQuery)) return true;
+                string q = searchQuery.ToLower();
+                return (u.ShopName?.ToLower().Contains(q) == true) ||
+                       (u.Name?.ToLower().Contains(q) == true) ||
+                       (u.Phone?.Contains(q) == true);
+            });
+        }
+    }
+
+    private void ShowListView()
+    {
+        isListView = true;
+        StateHasChanged();
+    }
+
+    private void OpenAddForm()
+    {
+        if (!canAddB2B) return;
+
+        isEditing = false;
+        formTitle = "Nouveau Détaillant Agréé";
+        formData = new UserB2BModel { Active = true, Role = "detaillant" };
+        editingUid = "";
+        isListView = false;
+        StateHasChanged();
+    }
+
+    private void EditDetaillant(string uid)
+    {
+        if (!canModifyB2B) return;
+        if (!localUsers.TryGetValue(uid, out var u)) return;
+
+        isEditing = true;
+        formTitle = "Modifier la Fiche Détaillant";
+        editingUid = uid;
+
+        formData = new UserB2BModel
+        {
+            Id = u.Id,
+            Email = u.Email ?? "",
+            Name = u.Name ?? "",
+            ShopName = u.ShopName ?? "",
+            Phone = u.Phone ?? "",
+            Address = u.Address ?? "",
+            Role = u.Role ?? "detaillant",
+            Active = u.Active
+        };
+
+        isListView = false;
+        StateHasChanged();
+    }
+
+    private async Task ToggleActiveStatus(string uid, object? value)
+    {
+        if (!canModifyB2B)
+        {
+            ShowToast("❌ Action non autorisée.");
+            return;
+        }
+
+        bool newStatus = value is bool b && b;
+        try
+        {
+            if (localUsers.TryGetValue(uid, out var user))
+            {
+                user.Active = newStatus;
+
+                DataSync.SaveLocal(user);
+
+                var payload = new Dictionary<string, object> { { "active", newStatus } };
+                DataSync.EnqueueOperation("UserB2BModel", uid, "UPDATE", payload);
+                if (!string.IsNullOrEmpty(idToken)) _ = DataSync.PushPendingOperationsAsync(idToken);
+
+                ShowToast(newStatus ? "✅ Détaillant Activé" : "❌ Détaillant Suspendu");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast("Erreur : " + ex.Message);
+        }
+    }
+
+    private async Task SaveDetaillant()
+    {
+        bool isNew = string.IsNullOrEmpty(editingUid);
+        if (isNew && !canAddB2B) { ShowToast("❌ Non autorisé."); return; }
+        if (!isNew && !canModifyB2B) { ShowToast("❌ Non autorisé."); return; }
+
+        try
+        {
+            string emailClean = formData.Email.Trim().ToLower();
+            string detaillantId = isNew ? emailClean.Replace(".", ",") : editingUid;
+
+            formData.Id = detaillantId;
+            formData.Role = "detaillant";
+
+            DataSync.SaveLocal(formData);
+
+            string operationType = isNew ? "CREATE" : "UPDATE";
+            DataSync.EnqueueOperation("UserB2BModel", detaillantId, operationType, formData);
+
+            LoadUsersAsync();
+            ShowListView();
+
+            ShowToast(isNew ? "✅ Partenaire enregistré !" : "✅ Fiche modifiée !");
+            if (!string.IsNullOrEmpty(idToken)) _ = DataSync.PushPendingOperationsAsync(idToken);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erreur : " + ex.Message);
+        }
+    }
+
+    private async Task RemoveDetaillant(string uid)
+    {
+        if (!canDeleteB2B)
+        {
+            ShowToast("❌ Action non autorisée.");
+            return;
+        }
+
+        if (!localUsers.TryGetValue(uid, out var u)) return;
+
+        var localOrders = DataSync.GetAllLocal<bothtech.Shared.Models.OrderModel>();
+        bool hasHistory = localOrders.Any(o => o.UserId == uid || o.ClientId == uid);
+
+        if (hasHistory)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "⛔ SUPPRESSION IMPOSSIBLE !\n\nCe détaillant a déjà effectué au moins une commande (vérifié localement).\nAstuce : Suspendez son compte à l'aide de l'interrupteur.");
+            return;
+        }
+
+        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Ce détaillant semble n'avoir aucun historique d'achat.\nVoulez-vous vraiment le supprimer (le rétrograder au statut de Client standard) ?");
+
+        if (confirm)
+        {
+            u.Role = "client";
+            DataSync.SaveLocal(u);
+
+            var payload = new Dictionary<string, object> { { "role", "client" } };
+            DataSync.EnqueueOperation("UserB2BModel", uid, "UPDATE", payload);
+
+            if (!string.IsNullOrEmpty(idToken)) _ = DataSync.PushPendingOperationsAsync(idToken);
+            LoadUsersAsync();
+            ShowToast("Statut Détaillant retiré.");
+        }
+    }
+
+    private async Task PrintContract(string uid)
+    {
+        await JSRuntime.InvokeVoidAsync("eval", $"printContract('{uid}')");
+    }
+
+    private void ShowToast(string msg)
+    {
+        toastMessage = msg;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            toastMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

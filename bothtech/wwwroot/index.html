@@ -30,11 +30,60 @@
 <body>
     <div id="app">Chargement...</div>
 
-    <!-- MAUI injecte ses propres interops en arrière-plan -->
     <script src="_framework/blazor.webview.js" autostart="false"></script>
 
     <!-- ========================================================= -->
-    <!-- 3. FONCTIONS JAVASCRIPT POUR LE MICROPHONE (SÉCURISÉES)   -->
+    <!-- 3. CONFIGURATION ET FONCTIONS FIREBASE AUTHENTICATION     -->
+    <!-- ========================================================= -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script>
+        // Remplacez par les vraies clés de votre projet Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDcDvEWQtqNrqlZQIQ6Qx4wH3L5r6Yi9SI",
+            authDomain: "bothtech-4c076.firebaseapp.com",
+            databaseURL: "https://bothtech-4c076-default-rtdb.firebaseio.com",
+            projectId: "bothtech-4c076",
+            storageBucket: "bothtech-4c076.firebasestorage.app",
+            messagingSenderId: "144366010537",
+            appId: "1:144366010537:web:29e433635ae76b5db129b8",
+            measurementId: "G-353N660Z26"
+        };
+
+        // On initialise Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        // On attache l'objet auth à window pour l'Interop C#
+        window.auth = firebase.auth();
+
+        // 👇 LA LIGNE MAGIQUE POUR FORCER LE FRANÇAIS 👇
+        window.auth.languageCode = 'fr';
+
+        // Fonction pour envoyer l'email de réinitialisation avec URL forcée
+        window.sendPasswordReset = function (email) {
+            if (!window.auth) {
+                return Promise.reject("Firebase Auth n'est pas initialisé.");
+            }
+
+            // 👇 AJOUT : On force Firebase à rediriger vers cette URL exacte
+            var actionCodeSettings = {
+                url: 'https://bothtechburkina.onrender.com/reset-password'
+            };
+
+            // On passe les paramètres "actionCodeSettings" à la fonction
+            return window.auth.sendPasswordResetEmail(email, actionCodeSettings)
+                .then(function () {
+                    return "Email envoyé";
+                })
+                .catch(function (error) {
+                    return Promise.reject(error.message);
+                });
+        };
+    </script>
+    <!-- ========================================================= -->
+    <!-- 4. FONCTIONS JAVASCRIPT POUR LE MICROPHONE (SÉCURISÉES)   -->
     <!-- ========================================================= -->
     <script>
         window.audioChat = {
@@ -42,14 +91,12 @@
             audioChunks: [],
 
             startRecording: async function () {
-                // Vérification de la compatibilité et du HTTPS
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                     console.error("L'API micro est introuvable. Assurez-vous que le WebView a les permissions requises.");
                     return false;
                 }
 
                 try {
-                    // Demande d'autorisation (Autorisée automatiquement par MyWebChromeClient côté C#)
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     this.mediaRecorder = new MediaRecorder(stream);
                     this.audioChunks = [];
@@ -61,10 +108,10 @@
                     };
 
                     this.mediaRecorder.start();
-                    return true; // Accès accordé et enregistrement démarré
+                    return true;
                 } catch (err) {
                     console.error("Accès au micro refusé ou erreur technique:", err);
-                    return false; // Accès refusé
+                    return false;
                 }
             },
 

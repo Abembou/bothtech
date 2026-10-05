@@ -1,107 +1,106 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
-using SQLite;
 using bothtech.Shared.Models;
 
 namespace bothtech.Shared.Services
 {
     public class DatabaseService
     {
-        private SQLiteAsyncConnection _db;
-        private bool _isInitialized = false;
+        private readonly DataSyncService _dataSync;
 
-        public DatabaseService()
+        // ✅ INJECTION : On confie tout à DataSyncService pour centraliser le hors-ligne
+        public DatabaseService(DataSyncService dataSync)
         {
-            // IMPORTANT : Ne jamais utiliser .Wait() dans le constructeur
-        }
-
-        private async Task InitAsync()
-        {
-            if (_isInitialized && _db != null) return;
-
-            var dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "bothtech_local.db3");
-            _db = new SQLiteAsyncConnection(dbPath);
-
-            // Création asynchrone propre, sans blocage du thread
-            await _db.CreateTableAsync<Product>();
-            await _db.CreateTableAsync<Order>();
-            await _db.CreateTableAsync<OrderItem>();
-
-            _isInitialized = true;
+            _dataSync = dataSync;
         }
 
         // ============================================================
         // 1. Récupérer le catalogue des produits pour l'affichage
         // ============================================================
-        public async Task<List<Product>> GetProductsAsync()
+        public Task<List<Product>> GetProductsAsync()
         {
-            await InitAsync();
-            return await _db.Table<Product>().ToListAsync();
+            // Lecture instantanée depuis le cache SQLite unifié
+            var products = _dataSync.GetAllLocal<Product>();
+            return Task.FromResult(products);
         }
 
-        public async Task UpdateLocalDatabaseAsync(List<Product> firebaseProducts)
+        public Task UpdateLocalDatabaseAsync(List<Product> firebaseProducts)
         {
-            await InitAsync();
-
-            // 1. Destruction et recréation de la table EN DEHORS de la transaction
-            // Cela empêche le crash SQLiteException (Database is locked)
-            await _db.DropTableAsync<Product>();
-            await _db.CreateTableAsync<Product>();
-
-            // 2. Insertion des nouvelles données en lot
-            await _db.RunInTransactionAsync(tran =>
+            // Mise à jour de la base de données unifiée
+            foreach (var product in firebaseProducts)
             {
-                foreach (var product in firebaseProducts)
-                {
-                    // InsertOrReplace est la méthode la plus sûre pour éviter les conflits d'ID
-                    tran.InsertOrReplace(product);
-                }
-            });
+                _dataSync.SaveLocal(product);
+            }
+            return Task.CompletedTask;
         }
 
         // ============================================================
         // 2. Enregistrer une vente locale (Comptoir) avec mise à jour des stocks
         // ============================================================
-        public async Task<bool> CreateLocalOrderAsync(Order order)
+        // ✅ CORRECTION 1 : Remplacement de "Order" par "OrderModel"
+        // ✅ CORRECTION 2 : Ajout du paramètre "idToken"
+        public Task<bool> CreateLocalOrderAsync(OrderModel order, string idToken = "")
         {
             try
             {
-                await InitAsync();
-
                 order.Status = "terminee";
                 order.Type = "comptoir";
                 order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                order.SyncStatus = "pending";
 
-                await _db.RunInTransactionAsync(tran =>
+                if (string.IsNullOrEmpty(order.Id))
                 {
-                    tran.Insert(order);
-                    var orderId = order.Id;
+                    order.Id = "COMPT-" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                }
 
+                // Récupération de tous les produits locaux pour ajuster les stocks
+                var localProducts = _dataSync.GetAllLocal<Product>();
+
+                if (order.Items != null)
+                {
                     foreach (var item in order.Items)
                     {
-                        item.OrderId = orderId;
-                        tran.Insert(item);
+                        item.OrderId = order.Id;
 
-                        var product = tran.Table<Product>().FirstOrDefault(p => p.Id == item.ProductFirebaseId);
-
+                        // 1. Mise à jour du produit
+                        var product = localProducts.FirstOrDefault(p => p.Id == item.ProductFirebaseId);
                         if (product != null)
                         {
                             product.Quantity -= item.Quantity;
-                            product.SoldQuantity += item.Quantity;
-                            tran.Update(product);
+                            if (product.Quantity < 0) product.Quantity = 0; // Sécurité anti-négatif
+
+                            // Si vous avez cette propriété dans votre modèle
+                            // product.SoldQuantity += item.Quantity; 
+
+                            // On sauvegarde le produit dans SQLite
+                            _dataSync.SaveLocal(product);
+
+                            // 🔥 CRUCIAL : On met à jour le produit dans Firebase via la file d'attente
+                            _dataSync.EnqueueOperation("Product", product.Id, "UPDATE", product);
                         }
                     }
-                });
+                }
 
-                return true;
+                // 2. Enregistrement de la commande
+                _dataSync.SaveLocal(order);
+
+                // 🔥 CRUCIAL : On envoie la commande à Firebase via la file d'attente
+                _dataSync.EnqueueOperation("OrderModel", order.Id, "CREATE", order);
+
+                // 3. Déclenchement de la synchronisation en arrière-plan
+                // ✅ CORRECTION 3 : On ne lance le Push que si on a un token valide
+                if (!string.IsNullOrEmpty(idToken))
+                {
+                    _ = _dataSync.PushPendingOperationsAsync(idToken);
+                }
+
+                return Task.FromResult(true);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Erreur lors de la vente : {ex.Message}");
-                return false;
+                return Task.FromResult(false);
             }
         }
     }

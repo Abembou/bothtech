@@ -1,0 +1,228 @@
+﻿@page "/maintenance/settings"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Models
+@using bothtech.Shared.Services
+@inject DataSyncService DataSync
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Paramètres de l'Entreprise | Console Admin</PageTitle>
+
+<div style="background: var(--danger-subtle); color: var(--danger); border: 1px solid var(--danger); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+    <strong>⚙️️ Configuration Système (@SettingsModel.Name)</strong><br>
+    Les informations saisies ici modifieront l'identité visuelle et les coordonnées de l'entreprise sur toutes les pages, factures et contrats de l'application.
+</div>
+
+<section class="card" style="max-width: 900px; margin: 0 auto;">
+    <div class="card-header">
+        <h2 class="card-title">Identité de l'Entreprise</h2>
+    </div>
+    <div class="card-body">
+
+        <EditForm Model="@SettingsModel" OnValidSubmit="SaveSettingsLocal">
+            <DataAnnotationsValidator />
+
+            <h3 style="font-size:0.9rem; color:var(--primary); margin-bottom:15px; border-bottom:1px solid var(--border); padding-bottom:5px;">1. Informations Générales & Logo</h3>
+
+            <!-- Section Logo -->
+            <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);">
+                <div style="width: 100px; height: 100px; background: white; border: 1px dashed #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                    @if (!string.IsNullOrEmpty(SettingsModel.LogoBase64))
+                    {
+                        <img src="@SettingsModel.LogoBase64" style="max-width: 100%; max-height: 100%; object-fit: contain;" alt="Logo" />
+                    }
+                    else
+                    {
+                        <span style="color: var(--text-muted); font-size: 0.8rem; text-align: center;">Aucun<br>Logo</span>
+                    }
+                </div>
+                <div style="flex: 1;">
+                    <label style="display: block; font-weight: bold; margin-bottom: 5px;">Logo de l'entreprise</label>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">Format recommandé: Carré, PNG ou JPG transparent. (Max 500ko)</p>
+                    <InputFile OnChange="HandleLogoUpload" class="form-control" accept="image/png, image/jpeg, image/jpg" />
+                </div>
+            </div>
+
+            <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Nom de l'entreprise *</label>
+                    <InputText @bind-Value="SettingsModel.Name" class="form-control" placeholder="Ex: BOTH TECH BURKINA" required />
+                </div>
+                <div class="form-group">
+                    <label>Slogan / Activité *</label>
+                    <InputText @bind-Value="SettingsModel.Slogan" class="form-control" placeholder="Ex: Vente de matériels informatiques" required />
+                </div>
+            </div>
+
+            <div class="form-grid-3" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 15px;">
+                <div class="form-group">
+                    <label>N° IFU / RCCM *</label>
+                    <InputText @bind-Value="SettingsModel.Ifu" class="form-control" placeholder="Ex: 0000000000X" required />
+                </div>
+                <div class="form-group">
+                    <label>Devise Principale *</label>
+                    <InputText @bind-Value="SettingsModel.Currency" class="form-control" required />
+                </div>
+                <div class="form-group">
+                    <label>Téléphone principal *</label>
+                    <InputText @bind-Value="SettingsModel.Phone" class="form-control" placeholder="Ex: +226 70 00 00 00" required />
+                </div>
+            </div>
+
+            <div class="form-grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                <div class="form-group">
+                    <label>Adresse physique *</label>
+                    <InputText @bind-Value="SettingsModel.Address" class="form-control" placeholder="Ex: Ouagadougou, Kadiogo" required />
+                </div>
+                <div class="form-group">
+                    <label>Pays *</label>
+                    <InputText @bind-Value="SettingsModel.Country" class="form-control" placeholder="Ex: Burkina Faso" required />
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label>Texte de pied de page (Factures) *</label>
+                <InputText @bind-Value="SettingsModel.FooterText" class="form-control" placeholder="Ex: La Patrie ou la Mort, nous vaincrons" required />
+            </div>
+
+            <button type="submit" disabled="@IsSaving" class="btn btn-primary" style="width:100%; padding: 14px; font-size:1.1rem; margin-top:20px; font-weight:bold; cursor:pointer;">
+                @(IsSaving ? "Sauvegarde en cours..." : "💾 Sauvegarder les Paramètres")
+            </button>
+        </EditForm>
+    </div>
+</section>
+
+<div id="toast" style="display: @(string.IsNullOrEmpty(ToastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999;">
+    @ToastMessage
+</div>
+
+@code {
+    private CompanySettings SettingsModel = new CompanySettings();
+    private bool IsSaving = false;
+    private string ToastMessage = "";
+    private string idToken = "";
+
+    // Limite de taille pour le logo (ex: 500 Ko)
+    private long maxFileSize = 500 * 1024;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+                // Lecture instantanée depuis la base de données SQLite
+                LoadLocalSettings();
+
+                // On déclenche le moteur en fond au cas où d'autres opérations attendaient
+                _ = DataSync.PushPendingOperationsAsync(idToken);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Erreur Init Paramètres : " + ex.Message);
+            }
+            finally
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void LoadLocalSettings()
+    {
+        // On récupère le premier (et unique) paramétrage
+        var localSettings = DataSync.GetAllLocal<CompanySettings>().FirstOrDefault();
+
+        if (localSettings != null)
+        {
+            SettingsModel = localSettings;
+        }
+        else
+        {
+            // Valeurs par défaut si la base est vide
+            SettingsModel = new CompanySettings
+            {
+                Id = "MAIN",
+                Name = "Both Tech Burkina",
+                Currency = "FCFA"
+            };
+        }
+    }
+
+    // Gestion du téléchargement du logo
+    private async Task HandleLogoUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file != null)
+        {
+            if (file.Size > maxFileSize)
+            {
+                ShowToast("❌ Image trop volumineuse (Max 500 Ko).");
+                return;
+            }
+
+            try
+            {
+                var format = file.ContentType;
+                // Redimensionnement de sécurité
+                var resizedImageFile = await file.RequestImageFileAsync(format, 400, 400);
+
+                var buffer = new byte[resizedImageFile.Size];
+                await resizedImageFile.OpenReadStream(maxFileSize).ReadAsync(buffer);
+
+                SettingsModel.LogoBase64 = $"data:{format};base64,{Convert.ToBase64String(buffer)}";
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"❌ Erreur lors du chargement de l'image : {ex.Message}");
+            }
+        }
+    }
+
+    // ===================================================================
+    // SAUVEGARDE OFFLINE (SQLITE + OUTBOX FIREBASE)
+    // ===================================================================
+    private void SaveSettingsLocal()
+    {
+        IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            // On s'assure que l'ID est toujours "MAIN" pour Firebase
+            SettingsModel.Id = "MAIN";
+
+            // 1. Sauvegarde locale instantanée dans SQLite
+            DataSync.SaveLocal(SettingsModel);
+
+            // 2. Mise en file d'attente (Outbox) pour Firebase
+            DataSync.EnqueueOperation("CompanySettings", "MAIN", "UPDATE", SettingsModel);
+
+            // 3. Déclenchement du moteur de synchronisation
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+
+            ShowToast("✅ Paramètres enregistrés localement ! (Synchronisation en cours)");
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"❌ Erreur : {ex.Message}");
+        }
+        finally
+        {
+            IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            ToastMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}

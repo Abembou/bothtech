@@ -1,0 +1,554 @@
+﻿@page "/rh/equipe"
+@layout bothtech.Shared.Layout.AdminLayout
+@using System.Globalization
+@using bothtech.Shared.Services
+@using bothtech.Shared.Models
+@inject FirebaseService FirebaseService
+@inject DataSyncService DataSync
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+
+<PageTitle>Gestion de l'Équipe | Console Admin</PageTitle>
+<div style="background: transparent; padding: 20px; margin: 0; overflow-x: hidden; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    <!-- ONGLETS RH / B2B -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+        <a href="/rh/equipe" class="rh-tab-btn active">Gestion de l'Équipe</a>
+        <a href="/rh/compteb2b" class="rh-tab-btn">Partenaires B2B</a>
+    </div>
+
+    @if (!IsFormView)
+    {
+        <!-- VUE 1 : LISTE DE L'ÉQUIPE -->
+        <section class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <h2 class="card-title hide-mobile">Membres de l'Équipe</h2>
+                <div style="display:flex; gap:10px; align-items:center; flex: 1; justify-content: flex-end;">
+                    <input type="search" placeholder="Rechercher par nom..." class="form-control" @bind="SearchQuery" @bind:event="oninput" style="max-width: 350px;">
+                    @if (canAddEquipe)
+                    {
+                        <button class="btn btn-primary" style="background: var(--success); color: white; border: none; font-weight: bold;" @onclick="OpenNewForm">
+                            + Ajouter un employé
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="custom-table" style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border);">
+                            <th style="padding:12px; text-align:left;">Agent</th>
+                            <th class="hide-mobile" style="padding:12px; text-align:left;">Contacts</th>
+                            <th class="hide-mobile" style="padding:12px; text-align:left;">Poste</th>
+                            <th class="hide-mobile" style="padding:12px; text-align: center;">Statut</th>
+                            <th style="padding:12px; text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr><td colspan="5" style="text-align:center; padding:30px;">Chargement de l'équipe...</td></tr>
+                        }
+                        else if (!FilteredStaff.Any())
+                        {
+                            <tr><td colspan="5" style="text-align:center; padding:30px; color:var(--text-muted);">Aucun agent trouvé.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var kvp in FilteredStaff)
+                            {
+                                var uid = kvp.Key;
+                                var staff = kvp.Value;
+
+                                <tr style="border-bottom: 1px solid var(--border);">
+                                    <td style="padding:12px;">
+                                        <b>@(staff.Name ?? "Sans nom")</b><br>
+                                        <small style="color:var(--text-muted);">✉ @staff.Email</small>
+                                    </td>
+                                    <td class="hide-mobile" style="padding:12px;">
+                                        <small>📞 @(string.IsNullOrEmpty(staff.Phone1) ? "Non renseigné" : staff.Phone1)</small>
+                                    </td>
+                                    <td class="hide-mobile" style="padding:12px;">
+                                        <span class="badge" style="background:#e2e8f0; color:#334155; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;">
+                                            @(staff.Role?.ToUpper() ?? "INCONNU")
+                                        </span>
+                                    </td>
+                                    <td class="hide-mobile" style="padding:12px; text-align: center;">
+                                        <span style="color:@(staff.Active ? "var(--success)" : "var(--danger)"); font-weight:bold; font-size: 0.85rem;">
+                                            @(staff.Active ? "Actif" : "Suspendu")
+                                        </span>
+                                    </td>
+                                    <td style="padding:12px; text-align:right;">
+                                        <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-end;">
+                                            @if (canModifyEquipe)
+                                            {
+                                                <button class="btn btn-outline" style="width:100%; cursor:pointer;" @onclick="() => EditStaff(uid)">Éditer</button>
+                                            }
+
+                                            @if (canDeleteEquipe && staff.Role != "admin" && staff.Role != "maintenance")
+                                            {
+                                                <button class="btn btn-outline" style="width:100%; cursor:pointer; color: var(--danger); border-color: var(--danger-subtle);" @onclick="() => DeleteStaff(uid)">
+                                                    Supprimer
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+    else
+    {
+        <!-- VUE 2 : FORMULAIRE EMPLOYÉ -->
+        <section class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 class="card-title">@(string.IsNullOrEmpty(editingUid) ? "Nouvelle Fiche" : "Modification Fiche")</h2>
+                <button type="button" class="btn btn-outline" @onclick="CloseForm" style="cursor: pointer;">🔙 Retour</button>
+            </div>
+            <div class="card-body">
+                <EditForm Model="EditingStaff" OnValidSubmit="SaveStaff">
+
+                    <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:5px;">1. Informations Générales & Profil</h3>
+
+                    <div class="form-group" style="margin-bottom: 15px;">
+                        <label>Email de connexion *</label>
+                        <InputText @bind-Value="EditingStaff.Email" class="form-control" disabled="@(!string.IsNullOrEmpty(editingUid))" required placeholder="email@bothtech.bf" />
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 15px;">
+                        <label>Mot de passe (Connexion Agent Locale) *</label>
+                        <InputText @bind-Value="EditingStaff.LocalPassword" type="password" class="form-control" required placeholder="Définir le mot de passe" />
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                        <div class="form-group">
+                            <label>Nom complet *</label>
+                            <InputText @bind-Value="EditingStaff.Name" class="form-control" required placeholder="Ex: Jean Dupont" />
+                        </div>
+                        <div class="form-group">
+                            <label>Sexe *</label>
+                            <InputSelect @bind-Value="EditingStaff.Sexe" class="form-control">
+                                <option value="Masculin">Masculin</option>
+                                <option value="Féminin">Féminin</option>
+                            </InputSelect>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                        <div class="form-group">
+                            <label>Téléphone 1 *</label>
+                            <InputText @bind-Value="EditingStaff.Phone1" class="form-control" required placeholder="Ex: 70 00 00 00" />
+                        </div>
+                        <div class="form-group">
+                            <label>Téléphone 2 (Optionnel)</label>
+                            <InputText @bind-Value="EditingStaff.Phone2" class="form-control" placeholder="Ex: 71 00 00 00" />
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 15px;">
+                        <label>Adresse / Quartier *</label>
+                        <InputText @bind-Value="EditingStaff.Address" class="form-control" required placeholder="Ex: Ouagadougou, Secteur 10" />
+                    </div>
+
+                    <h3 style="font-size:0.85rem; color:var(--primary); margin-bottom:10px; margin-top:20px; border-bottom:1px solid var(--border); padding-bottom:5px;">2. Informations du Poste</h3>
+
+                    <div class="form-group" style="margin-bottom: 15px;">
+                        <label>Poste Actuel (Rôle) *</label>
+                        <InputSelect @bind-Value="EditingStaff.Role" class="form-control" required>
+                            <option value="secretaire">Secrétaire</option>
+                            <option value="livreur">Livreur</option>
+                            <option value="comptable">Comptable</option>
+                            <option value="rh">Ressources Humaines (RH)</option>
+                            <option value="commercial">Commercial</option>
+                            <option value="gardien">Gardien / Sécurité</option>
+                            @if (CurrentUserRole == "admin" || CurrentUserRole == "maintenance")
+                            {
+                                <option value="admin">Administrateur</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+                        <input type="checkbox" id="eActive" @bind="EditingStaff.Active">
+                        <label for="eActive" style="margin:0; cursor: pointer; font-weight: bold; color: var(--success);">Agent Actif (Autorisé à se connecter)</label>
+                    </div>
+
+                    <h3 style="font-size:0.85rem; color:var(--danger); margin-bottom:10px; margin-top:20px; border-bottom:1px solid var(--border); padding-bottom:5px;">3. Contact en cas d'urgence</h3>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                        <div class="form-group">
+                            <label>Nom de la personne à prévenir</label>
+                            <InputText @bind-Value="EditingStaff.EmergencyName" class="form-control" placeholder="Ex: M. / Mme Dupont" />
+                        </div>
+                        <div class="form-group">
+                            <label>Numéro en cas d'urgence</label>
+                            <InputText @bind-Value="EditingStaff.EmergencyPhone" class="form-control" placeholder="Ex: 70 00 00 00" />
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" style="width:100%; background:var(--warning); color:white; border:none; padding: 14px; font-size:1.05rem; margin-top:20px; font-weight: bold; cursor: pointer;">
+                        💾 Enregistrer l'Employé
+                    </button>
+                </EditForm>
+            </div>
+        </section>
+    }
+
+    <!-- TOAST DE NOTIFICATION -->
+    <div id="toast" style="display: @(string.IsNullOrEmpty(ToastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 12px 24px; border-radius: 8px; z-index: 9999;">@ToastMessage</div>
+</div>
+
+<style>
+    .rh-tab-btn {
+        padding: 10px 20px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        background: transparent;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: 0.3s;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+        .rh-tab-btn:hover {
+            background: #f1f5f9;
+            color: var(--primary);
+        }
+
+        .rh-tab-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+
+    @@media (max-width: 768px) {
+        .hide-mobile {
+            display: none !important;
+        }
+    }
+</style>
+
+@code {
+    private bool IsLoading = true;
+    private bool IsFormView = false;
+    private string SearchQuery = "";
+    private string ToastMessage = "";
+    private string idToken = "";
+
+    // Variables pour l'utilisateur actuel
+    private string CurrentUserId = "";
+    private string CurrentUserRole = "client";
+
+    // Permissions dynamiques
+    private bool isAdminOrMaintenance = false;
+    private bool canReadEquipe = false;
+    private bool canAddEquipe = false;
+    private bool canModifyEquipe = false;
+    private bool canDeleteEquipe = false;
+    private Dictionary<string, Dictionary<string, bool>> currentPermissions = new();
+
+    private Dictionary<string, StaffModel> localUsers = new();
+    private StaffModel EditingStaff = new();
+    private string editingUid = "";
+
+    // Filtrage dynamique avec les nouvelles règles
+    private IEnumerable<KeyValuePair<string, StaffModel>> FilteredStaff => localUsers
+        .Where(kvp =>
+        {
+            var role = kvp.Value.Role?.ToLower().Trim() ?? "";
+
+            // Règles strictes de listage :
+            // 1. "maintenance" n'est JAMAIS listée dans cette table.
+            if (role == "maintenance") return false;
+
+            // 2. Seuls ces rôles sont affichés :
+            bool isTeamMember = role == "secretaire" || role == "livreur" || role == "comptable" || role == "commercial" || role == "gardien" || role == "rh" || role == "admin";
+            if (!isTeamMember) return false;
+
+            // 3. Masquer le compte "admin" de la liste SI celui qui regarde la liste n'est NI admin NI maintenance
+            if (role == "admin" && !isAdminOrMaintenance)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(SearchQuery)) return true;
+            return kvp.Value.Name?.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) == true;
+        });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+                CurrentUserId = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+                CurrentUserRole = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client";
+                CurrentUserRole = CurrentUserRole.ToLower().Trim();
+
+                isAdminOrMaintenance = (CurrentUserRole == "admin" || CurrentUserRole == "maintenance");
+
+                if (CurrentUserRole != "admin" && CurrentUserRole != "maintenance" && CurrentUserRole != "client")
+                {
+                    LoadUserPermissionsLocal(CurrentUserRole);
+                }
+
+                canReadEquipe = HasPerm("equipe", "lecture");
+                canAddEquipe = HasPerm("equipe", "ajouter");
+                canModifyEquipe = HasPerm("equipe", "modifier");
+                canDeleteEquipe = HasPerm("equipe", "supprimer");
+
+                // Expulsion si aucun droit de lecture
+                if (CurrentUserRole == "client" || (!isAdminOrMaintenance && !canReadEquipe))
+                {
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                // 1. AFFICHER INSTANTANÉMENT CE QUI EST DANS SQLITE
+                LoadStaffAsync();
+
+                // 2. VIDER LA FILE D'ATTENTE VERS FIREBASE (En arrière-plan)
+                _ = DataSync.PushPendingOperationsAsync(idToken);
+
+                // 3. ASPIRER FIREBASE VERS SQLITE POUR LES MISES À JOUR (En arrière-plan)
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await DataSync.PullStaffFromFirebaseAsync(idToken);
+                        await InvokeAsync(() =>
+                        {
+                            LoadStaffAsync();
+                            StateHasChanged();
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Erreur Pull Staff : " + ex.Message);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                await ShowToast("Erreur d'initialisation : " + ex.Message);
+            }
+            finally
+            {
+                IsLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void LoadUserPermissionsLocal(string role)
+    {
+        try
+        {
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+            string cleanRole = (role ?? "").ToLower().Trim();
+            var myRoleConfig = localRoles.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == cleanRole);
+
+            if (myRoleConfig != null && !string.IsNullOrEmpty(myRoleConfig.PermissionsJson))
+            {
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(myRoleConfig.PermissionsJson, options);
+
+                if (parsed != null && parsed.Count > 0)
+                {
+                    currentPermissions = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var module in parsed)
+                    {
+                        var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var action in module.Value)
+                        {
+                            actionDict[action.Key] = action.Value;
+                        }
+                        currentPermissions[module.Key] = actionDict;
+                    }
+                }
+                else currentPermissions = new();
+            }
+            else currentPermissions = new();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture permissions équipe : " + ex.Message);
+            currentPermissions = new();
+        }
+    }
+
+    private bool HasPerm(string module, string action)
+    {
+        if (isAdminOrMaintenance) return true;
+
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            string safeModule = module.ToLower();
+            if (CurrentUserRole == "rh" && safeModule == "equipe") return true;
+            return false;
+        }
+
+        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
+        {
+            return allowed;
+        }
+
+        return false;
+    }
+
+    private void OpenNewForm()
+    {
+        if (!canAddEquipe) return;
+        EditingStaff = new StaffModel { Role = "livreur", Sexe = "Masculin", Active = true };
+        editingUid = "";
+        IsFormView = true;
+        StateHasChanged();
+    }
+
+    private void EditStaff(string uid)
+    {
+        if (!canModifyEquipe) return;
+        if (!localUsers.TryGetValue(uid, out var u)) return;
+
+        // Bloquer la modification d'un admin par un non-admin
+        if (u.Role == "admin" && !isAdminOrMaintenance)
+        {
+            _ = ShowToast("❌ Vous ne pouvez pas modifier un administrateur.");
+            return;
+        }
+
+        editingUid = uid;
+        EditingStaff = new StaffModel
+        {
+            Id = u.Id ?? uid,
+            Email = u.Email ?? "",
+            LocalPassword = u.LocalPassword ?? "",
+            Name = u.Name ?? "",
+            Role = u.Role ?? "",
+            Sexe = u.Sexe ?? "",
+            Active = u.Active,
+            Phone1 = u.Phone1 ?? "",
+            Phone2 = u.Phone2 ?? "",
+            Address = u.Address ?? "",
+            EmergencyName = u.EmergencyName ?? "",
+            EmergencyPhone = u.EmergencyPhone ?? ""
+        };
+        IsFormView = true;
+        StateHasChanged();
+    }
+
+    private void CloseForm()
+    {
+        IsFormView = false;
+        StateHasChanged();
+    }
+
+    private async Task ShowToast(string message)
+    {
+        ToastMessage = message;
+        StateHasChanged();
+        await Task.Delay(3000);
+        ToastMessage = "";
+        StateHasChanged();
+    }
+
+    // ===================================================================
+    // LECTURE LOCALE
+    // ===================================================================
+    private void LoadStaffAsync()
+    {
+        try
+        {
+            var offlineStaff = DataSync.GetAllLocal<StaffModel>();
+            localUsers.Clear();
+            foreach (var staff in offlineStaff)
+            {
+                if (!string.IsNullOrEmpty(staff.Id))
+                {
+                    localUsers[staff.Id] = staff;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture SQLite : " + ex.Message);
+        }
+    }
+
+    // ===================================================================
+    // CRÉATION ET MISE À JOUR D'UN AGENT
+    // ===================================================================
+    private async Task SaveStaff()
+    {
+        bool isNew = string.IsNullOrEmpty(editingUid);
+        if (isNew && !canAddEquipe) return;
+        if (!isNew && !canModifyEquipe) return;
+
+        try
+        {
+            string emailClean = EditingStaff.Email.Trim().ToLower();
+            string staffId = isNew ? emailClean.Replace(".", ",") : editingUid;
+
+            EditingStaff.Id = staffId;
+
+            // 1. Enregistrement immédiat dans SQLite
+            DataSync.SaveLocal(EditingStaff);
+
+            // 2. CRÉATION DU COLIS POUR FIREBASE (Outbox)
+            string operationType = isNew ? "CREATE" : "UPDATE";
+            DataSync.EnqueueOperation("StaffModel", staffId, operationType, EditingStaff);
+
+            // 3. Rafraîchir l'interface locale
+            LoadStaffAsync();
+
+            await ShowToast("✅ Profil Agent enregistré localement !");
+
+            // 4. DÉMARRAGE DU MOTEUR (Sync vers Firebase)
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+            IsFormView = false;
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erreur : " + ex.Message);
+        }
+    }
+
+    // ===================================================================
+    // SUPPRESSION D'UN AGENT
+    // ===================================================================
+    private async Task DeleteStaff(string uid)
+    {
+        if (!canDeleteEquipe) return;
+
+        if (localUsers.TryGetValue(uid, out var u) && (u.Role == "admin" || u.Role == "maintenance"))
+        {
+            await ShowToast("❌ Vous ne pouvez pas supprimer ce type de compte.");
+            return;
+        }
+
+        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Voulez-vous vraiment supprimer cet agent définitivement ?");
+        if (!confirm) return;
+
+        try
+        {
+            DataSync.DeleteLocal<StaffModel>(uid);
+            DataSync.EnqueueOperation<StaffModel>("StaffModel", uid, "DELETE", null);
+
+            LoadStaffAsync();
+            await ShowToast("🗑️ Agent supprimé avec succès.");
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+        }
+        catch (Exception ex)
+        {
+            await ShowToast($"❌ Erreur lors de la suppression : {ex.Message}");
+        }
+    }
+}

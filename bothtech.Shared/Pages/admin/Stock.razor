@@ -1,12 +1,14 @@
-﻿@page "/stock"
-@layout AdminLayout
+﻿@page "/admin/stock"
+@layout bothtech.Shared.Layout.AdminLayout
 @using bothtech.Shared.Models
 @using bothtech.Shared.Services
-@inject FirebaseService FirebaseService
+@using Microsoft.AspNetCore.Components.Forms
+@inject DataSyncService DataSync
 @inject IJSRuntime JSRuntime
+@using System.Globalization
 
 <div style="background: transparent; padding: 10px; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); margin: 0; overflow-x: hidden; font-family: 'Plus Jakarta Sans', sans-serif;">
-  
+
     <!-- VUE 1 : KPI ET LISTE (Par défaut) -->
     <div id="viewList" style="display: @(showForm ? "none" : "block");">
         <section class="kpi-grid">
@@ -66,7 +68,7 @@
 
                                     <tr>
                                         <td>
-                                            <div class="prod-cell">
+                                            <div class="prod-cell" style="display:flex; align-items:center;">
                                                 <img src="@(string.IsNullOrEmpty(p.ImageUrl) ? "_content/bothtech.Shared/images/default.jpg" : p.ImageUrl)" class="prod-thumb" style="width: 50px; height: 50px; object-fit: cover; border-radius: 6px; margin-right: 10px;">
                                                 <div style="flex:1;">
                                                     <b style="font-size:0.95rem; color:var(--text-main);">@p.Name</b><br>
@@ -80,7 +82,6 @@
                                                         <span class="badge badge-warning" style="margin-top:4px; display:inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; background: var(--warning); color: white;">⏳ Non Validé</span>
                                                     }
 
-                                                    <!-- AFFICHAGE DÉDIÉ AUX MOBILES -->
                                                     <div class="mobile-only-display" style="margin-top:8px; font-size:0.85rem; line-height: 1.5; border-top:1px dashed var(--border); padding-top:8px;">
                                                         <strong style="color:var(--primary); font-size:1rem;">@FormatMoney(p.Price)</strong><br>
                                                         <div style="display:flex; justify-content:space-between; margin-top:4px;">
@@ -118,7 +119,7 @@
                                                     <button class="btn btn-outline btn-action" style="padding: 4px 8px; font-size: 0.8rem; color:var(--success); border-color:var(--success); cursor: pointer;" @onclick="() => ValidateStock(id)">Valider</button>
                                                 }
 
-                                                @if (sold == 0 && !p.Validated && canModifyProduct)
+                                                @if (sold == 0 && !p.Validated && canDeleteProduct)
                                                 {
                                                     <button class="btn btn-outline btn-action" style="padding: 4px 8px; font-size: 0.8rem; color:var(--danger); border-color:var(--danger-subtle); cursor: pointer;" @onclick="() => DeleteStock(id)">Supprimer</button>
                                                 }
@@ -192,14 +193,20 @@
                                 <option value="Promo">Promo</option>
                                 <option value="Recommander">Recommander</option>
                                 <option value="Nouveau">Nouveau</option>
+                                <option value="Rupture">Rupture</option>
                             </select>
                         </div>
-                        <div class="form-group"><label>Image (URL)</label><input type="text" @bind="currentProduct.ImageUrl" class="form-control" placeholder="https://..."></div>
+                        <div class="form-group">
+                            <label>Image (Upload)</label>
+                            <InputFile @key="inputFileId" OnChange="HandleImageUpload" class="form-control" accept="image/*" />
+                        </div>
                     </div>
 
                     @if (!string.IsNullOrEmpty(currentProduct.ImageUrl))
                     {
-                        <div style="margin: 15px 0; text-align: center;"><img src="@currentProduct.ImageUrl" style="max-width: 100%; max-height: 150px; border-radius: 6px; border: 1px solid var(--border); object-fit: contain;"></div>
+                        <div style="margin: 15px 0; text-align: center;">
+                            <img src="@currentProduct.ImageUrl" style="max-width: 100%; max-height: 150px; border-radius: 6px; border: 1px solid var(--border); object-fit: contain;">
+                        </div>
                     }
 
                     <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin: 20px 0; padding: 15px; background: white; border-radius:6px; border:1px solid var(--border);">
@@ -214,7 +221,6 @@
     </div>
 
     <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">@toastMessage</div>
-
 </div>
 
 @code {
@@ -225,13 +231,17 @@
     private string toastMessage = "";
     private string formTitle = "Nouvel Article";
     private string editingId = "";
+    private Guid inputFileId = Guid.NewGuid();
 
-    // Sécurité et Sessions
+    // Sécurité et Permissions Dynamiques
     private string userRole = "client";
     private string idToken = "";
-    private bool canAddProduct = true;
-    private bool canModifyProduct = true;
+    private bool canAddProduct = false;
+    private bool canModifyProduct = false;
+    private bool canDeleteProduct = false;
     private bool isAdminOrMaintenance = false;
+
+    private Dictionary<string, Dictionary<string, bool>> currentPermissions = new();
 
     // KPI
     private int totalRemaining = 0;
@@ -239,7 +249,7 @@
     private int amortizationRate = 0;
     private long totalRevenue = 0;
 
-    // Données réelles Firebase (Utilisation du vrai modèle Product)
+    // Données Locales
     private Product currentProduct = new();
     private Dictionary<string, Product> localProducts = new();
 
@@ -277,33 +287,70 @@
                 idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
 
                 isAdminOrMaintenance = (userRole == "admin" || userRole == "maintenance");
-                canAddProduct = isAdminOrMaintenance; // A ajuster selon vos permissions avancées
-                canModifyProduct = isAdminOrMaintenance;
 
-                await LoadRealData();
+                // 👉 CHARGEMENT DES PERMISSIONS DEPUIS SQLITE POUR CE RÔLE
+                LoadUserPermissionsLocal(userRole);
+
+                // 👉 ÉVALUATION DES DROITS SUR LE MODULE "produits"
+                canAddProduct = HasPerm("produits", "ajouter");
+                canModifyProduct = HasPerm("produits", "modifier");
+                canDeleteProduct = HasPerm("produits", "supprimer");
+
+                LoadLocalData();
+
+                _ = DataSync.PushPendingOperationsAsync(idToken);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Erreur Init Stock : " + ex.Message);
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
         }
     }
 
-    private async Task LoadRealData()
+    
+
+    private bool HasPerm(string module, string action)
     {
-        isLoading = true;
-        StateHasChanged();
+        if (isAdminOrMaintenance) return true;
+
+        // Sécurité de secours si la base de données locale des rôles est vide
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            string safeModule = module.ToLower();
+            string safeAction = action.ToLower();
+
+            // Rôles autorisés par défaut sur ce module s'il n'y a pas de matrice de permission
+            if (userRole == "commercial")
+            {
+                if (safeModule == "produits" && safeAction == "lecture") return true;
+            }
+            return false;
+        }
+
+        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
+        {
+            return allowed;
+        }
+
+        return false;
+    }
+
+    private void LoadLocalData()
+    {
         try
         {
-            var productsList = await FirebaseService.GetProductsAsync();
+            var productsList = DataSync.GetAllLocal<Product>();
             localProducts = productsList.ToDictionary(p => p.Id, p => p);
             CalculateKpis();
         }
         catch (Exception ex)
         {
-            ShowToast("Erreur de chargement: " + ex.Message);
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
+            ShowToast("Erreur lecture locale: " + ex.Message);
         }
     }
 
@@ -315,21 +362,49 @@
         totalRevenue = localProducts.Values.Sum(p => (long)p.SoldQuantity * p.Price);
     }
 
+    private async Task HandleImageUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file != null)
+            {
+                long maxAllowedSize = 5 * 1024 * 1024;
+                var format = file.ContentType;
+                if (string.IsNullOrEmpty(format) || !format.StartsWith("image/")) format = "image/jpeg";
+
+                var resizedImageFile = await file.RequestImageFileAsync(format, 800, 800);
+                using var ms = new MemoryStream();
+                await resizedImageFile.OpenReadStream(maxAllowedSize).CopyToAsync(ms);
+
+                var base64 = Convert.ToBase64String(ms.ToArray());
+                currentProduct.ImageUrl = $"data:{format};base64,{base64}";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"❌ Erreur de l'image : {ex.Message}");
+        }
+    }
+
     private void OpenNewProductForm()
     {
+        if (!canAddProduct) { ShowToast("❌ Action non autorisée par la matrice."); return; }
         editingId = "";
         formTitle = "Nouvel Article";
         currentProduct = new Product { Active = true, Category = "laptops" };
+        inputFileId = Guid.NewGuid();
         showForm = true;
     }
 
     private void EditProduct(string id)
     {
+        if (!canModifyProduct) { ShowToast("❌ Action non autorisée par la matrice."); return; }
         editingId = id;
         formTitle = "Modifier l'Article";
         var p = localProducts[id];
 
-        // Copie des valeurs pour édition (évite de modifier la liste avant la sauvegarde)
         currentProduct = new Product
         {
             Id = p.Id,
@@ -351,37 +426,44 @@
             CreatedAt = p.CreatedAt,
             Reviews = p.Reviews
         };
+
+        inputFileId = Guid.NewGuid();
         showForm = true;
     }
 
-    private async Task SaveProduct()
+    private void SaveProduct()
     {
+        bool isNew = string.IsNullOrEmpty(editingId);
+        if (isNew && !canAddProduct) { ShowToast("❌ Non autorisé à ajouter."); return; }
+        if (!isNew && !canModifyProduct) { ShowToast("❌ Non autorisé à modifier."); return; }
+
         isSaving = true;
         StateHasChanged();
 
         try
         {
-            if (string.IsNullOrEmpty(editingId))
+            if (string.IsNullOrEmpty(currentProduct.ImageUrl)) currentProduct.ImageUrl = "";
+
+            if (isNew)
             {
-                // CRÉATION NOUVEAU PRODUIT DANS FIREBASE
-                currentProduct.Id = Guid.NewGuid().ToString();
+                currentProduct.Id = Guid.NewGuid().ToString("N");
                 currentProduct.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
                 currentProduct.ValidatedBy = userRole;
-                currentProduct.Validated = isAdminOrMaintenance; // Auto-validé si c'est un admin
-
-                await FirebaseService.AddProductAsync(currentProduct, idToken);
-                localProducts[currentProduct.Id] = currentProduct;
-                ShowToast("✅ Article créé avec succès");
+                currentProduct.Validated = isAdminOrMaintenance;
             }
             else
             {
-                // MISE À JOUR FIREBASE
                 currentProduct.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-                await FirebaseService.UpdateProductAsync(currentProduct.Id, currentProduct, idToken);
-                localProducts[editingId] = currentProduct;
-                ShowToast("✅ Article mis à jour");
             }
+
+            DataSync.SaveLocal(currentProduct);
+            localProducts[currentProduct.Id] = currentProduct;
+
+            string opType = isNew ? "CREATE" : "UPDATE";
+            DataSync.EnqueueOperation("Product", currentProduct.Id, opType, currentProduct);
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+
+            ShowToast(isNew ? "✅ Article créé en local" : "✅ Article mis à jour");
 
             CalculateKpis();
             showForm = false;
@@ -397,41 +479,60 @@
         }
     }
 
-    private async Task ValidateStock(string id)
+    private void ValidateStock(string id)
     {
+        if (!isAdminOrMaintenance) { ShowToast("❌ Réservé aux administrateurs."); return; }
+
         try
         {
-            var p = localProducts[id];
+            if (!localProducts.TryGetValue(id, out var p)) return;
+
             p.Validated = true;
             p.ValidatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             p.ValidatedBy = "Admin";
 
-            await FirebaseService.UpdateProductAsync(id, p, idToken);
+            DataSync.SaveLocal(p);
+
+            var payload = new Dictionary<string, object>
+            {
+                { "validated", true },
+                { "validatedAt", p.ValidatedAt },
+                { "validatedBy", p.ValidatedBy }
+            };
+            DataSync.EnqueueOperation("Product", id, "UPDATE", payload);
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+
             ShowToast("✅ Stock validé !");
             StateHasChanged();
         }
         catch (Exception ex)
         {
-            ShowToast($"❌ Erreur de validation : {ex.Message}");
+            ShowToast($"❌ Erreur : {ex.Message}");
         }
     }
 
     private async Task DeleteStock(string id)
     {
-        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Supprimer définitivement cet article ? L'action est irréversible.");
+        if (!canDeleteProduct) { ShowToast("❌ Action non autorisée par la matrice."); return; }
+
+        bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Supprimer définitivement cet article ?");
         if (!confirm) return;
 
         try
         {
-            await FirebaseService.DeleteProductAsync(id, idToken);
+            DataSync.DeleteLocal<Product>(id);
             localProducts.Remove(id);
+
+            DataSync.EnqueueOperation<Product>("Product", id, "DELETE", null);
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+
             CalculateKpis();
-            ShowToast("🗑️ Article supprimé avec succès.");
+            ShowToast("🗑️ Article supprimé.");
             StateHasChanged();
         }
         catch (Exception ex)
         {
-            ShowToast($"❌ Erreur de suppression : {ex.Message}");
+            ShowToast($"❌ Erreur : {ex.Message}");
         }
     }
 
@@ -446,8 +547,53 @@
         });
     }
 
-    private string FormatMoney(long amount)
+    private string FormatMoney(decimal amount)
     {
-        return $"{amount:N0} FCFA".Replace(',', ' ');
+        var nfi = (NumberFormatInfo)CultureInfo.GetCultureInfo("fr-FR").NumberFormat.Clone();
+        nfi.NumberGroupSeparator = " ";
+        return amount.ToString("N0", nfi) + " FCFA";
+    }
+    private void LoadUserPermissionsLocal(string role)
+    {
+        try
+        {
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+            string cleanRole = (role ?? "").ToLower().Trim();
+            var myRoleConfig = localRoles.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == cleanRole);
+
+            if (myRoleConfig != null && !string.IsNullOrEmpty(myRoleConfig.PermissionsJson))
+            {
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(myRoleConfig.PermissionsJson, options);
+
+                if (parsed != null && parsed.Count > 0)
+                {
+                    // Reconstruction pour ignorer la casse des clés (ex: "Produits" == "produits", "Ajouter" == "ajouter")
+                    currentPermissions = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var module in parsed)
+                    {
+                        var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var action in module.Value)
+                        {
+                            actionDict[action.Key] = action.Value;
+                        }
+                        currentPermissions[module.Key] = actionDict;
+                    }
+                }
+                else
+                {
+                    currentPermissions = new();
+                }
+            }
+            else
+            {
+                currentPermissions = new();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture permissions stock : " + ex.Message);
+            currentPermissions = new();
+        }
     }
 }

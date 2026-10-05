@@ -52,6 +52,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <AndroidResource Remove="wwwroot\NewFolder\**" />
+	  <Compile Remove="wwwroot\NewFolder\**" />
+	  <Content Remove="wwwroot\NewFolder\**" />
+	  <EmbeddedResource Remove="wwwroot\NewFolder\**" />
+	  <None Remove="wwwroot\NewFolder\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 	  <Compile Remove="Platforms\Android\WebAuthenticationCallbackActivity.cs" />
 	</ItemGroup>
 

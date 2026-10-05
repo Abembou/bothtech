@@ -14,12 +14,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Models\ChatMessage.cs" />
+    <Compile Remove="Models\ChatSession.cs" />
+    <Compile Remove="Models\Order.cs" />
+    <Compile Remove="Models\OrderItem.cs" />
     <Compile Remove="Models\Review.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Remove="Pages\CongesRh.razor" />
+    <Content Remove="Pages\Counter.razor" />
     <Content Remove="Pages\EditPaie.razor" />
+    <Content Remove="Pages\Rh.razor" />
+    <Content Remove="Pages\Ventes.razor" />
+    <Content Remove="Pages\Weather.razor" />
     <Content Remove="wwwroot\app.css" />
   </ItemGroup>
 

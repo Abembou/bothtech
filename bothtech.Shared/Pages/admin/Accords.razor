@@ -1,7 +1,8 @@
-﻿@page "/accords"
+﻿@page "/admin/accords"
 @layout bothtech.Shared.Layout.AdminLayout
 @using bothtech.Shared.Services
-@inject FirebaseService FirebaseService
+@using bothtech.Shared.Models
+@inject DataSyncService DataSync
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Matrice des Rôles & Permissions | Console Admin</PageTitle>
@@ -14,7 +15,7 @@
             <h1 style="font-size: 1.5rem; color: var(--primary); margin: 0; font-weight: 800;">Matrice des Rôles & Permissions</h1>
             <p style="color: var(--text-muted); margin: 5px 0 0 0; font-size: 0.9rem;">Configurez les droits d'accès granulaires pour chaque profil de l'organisation.</p>
         </div>
-        <button class="btn btn-primary" @onclick="SaveRolesMatrixAsync" disabled="@isSaving" style="padding: 10px 20px; font-weight: bold; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+        <button class="btn btn-primary" @onclick="SaveRolesMatrixLocal" disabled="@isSaving" style="padding: 10px 20px; font-weight: bold; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
             <span>@(isSaving ? "Enregistrement..." : "💾 Enregistrer les modifications")</span>
         </button>
     </div>
@@ -38,7 +39,7 @@
             @if (isLoading)
             {
                 <div style="text-align: center; padding: 40px; color: var(--text-muted);">
-                    <p style="margin: 0; font-size: 0.9rem;">Chargement de la matrice des rôles depuis Firebase...</p>
+                    <p style="margin: 0; font-size: 0.9rem;">Chargement de la matrice...</p>
                 </div>
             }
             else
@@ -93,7 +94,7 @@
     // Dictionnaire global de la matrice : roles -> module -> action -> bool
     private Dictionary<string, Dictionary<string, Dictionary<string, bool>>> rolesMatrix = new();
 
-    // Liste des rôles mis à jour avec le rôle "chauffeur"
+    // Liste des rôles
     private readonly Dictionary<string, string> availableRoles = new()
     {
         { "livreur", "Livreur" },
@@ -103,7 +104,7 @@
         { "comptable", "Comptable" }
     };
 
-    // Liste de tous les modules de l'application
+    // Liste des modules
     private readonly Dictionary<string, string> availableModules = new()
     {
         { "📦 Gestion des Stocks (Produits)", "produits" },
@@ -123,7 +124,12 @@
             try
             {
                 idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
-                await LoadRolesMatrixAsync();
+
+                // Lecture instantanée depuis SQLite
+                LoadLocalRolesMatrix();
+
+                // Déclenchement du moteur de fond pour vider d'anciennes tâches éventuelles
+                _ = DataSync.PushPendingOperationsAsync(idToken);
             }
             catch (Exception ex)
             {
@@ -137,27 +143,35 @@
         }
     }
 
-    private async Task LoadRolesMatrixAsync()
+    // ===================================================================
+    // LECTURE OFFLINE DEPUIS SQLITE
+    // ===================================================================
+    private void LoadLocalRolesMatrix()
     {
         try
         {
-            string url = $"https://bothtech-4c076-default-rtdb.firebaseio.com/roles.json?auth={idToken}";
-            using var client = new HttpClient();
-            var response = await client.GetAsync(url);
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
 
-            if (response.IsSuccessStatusCode)
+            rolesMatrix.Clear();
+            foreach (var role in localRoles)
             {
-                string json = await response.Content.ReadAsStringAsync();
-                if (!string.IsNullOrEmpty(json) && json != "null")
+                if (!string.IsNullOrEmpty(role.PermissionsJson))
                 {
                     var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    rolesMatrix = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, Dictionary<string, bool>>>>(json, options) ?? new();
+                    var modActions = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(role.PermissionsJson, options);
+
+                    if (modActions != null)
+                    {
+                        // ❌ ANCIEN CODE : rolesMatrix[role.RoleId] = modActions;
+                        // ✅ NOUVEAU CODE CORRIGÉ :
+                        rolesMatrix[role.Id] = modActions;
+                    }
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Erreur chargement rôles : " + ex.Message);
+            Console.WriteLine("Erreur lecture SQLite Rôles : " + ex.Message);
         }
     }
 
@@ -185,39 +199,48 @@
         rolesMatrix[role][module][action] = isChecked;
     }
 
-    private async Task SaveRolesMatrixAsync()
+    // ===================================================================
+    // ÉCRITURE OFFLINE (SAUVEGARDE SQLITE + OUTBOX FIREBASE)
+    // ===================================================================
+    private void SaveRolesMatrixLocal()
     {
         isSaving = true;
         StateHasChanged();
 
         try
         {
-            using var client = new HttpClient();
             var options = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
 
-            // Sauvegarde rôle par rôle pour respecter les règles de Firebase ($roleId)
+            // Sauvegarde rôle par rôle pour respecter les règles (Offline + Cloud)
             foreach (var kvp in rolesMatrix)
             {
                 string roleKey = kvp.Key;
-                var roleData = kvp.Value;
+                var roleData = kvp.Value; // C'est le dictionnaire des modules pour ce rôle
 
-                string url = $"https://bothtech-4c076-default-rtdb.firebaseio.com/roles/{roleKey}.json?auth={idToken}";
-                string jsonPayload = System.Text.Json.JsonSerializer.Serialize(roleData, options);
-                var content = new StringContent(jsonPayload, System.Text.Encoding.UTF8, "application/json");
-
-                var response = await client.PutAsync(url, content);
-                if (!response.IsSuccessStatusCode)
+                // 1. Mise à jour de SQLite locale (Conversion en JSON)
+                string jsonString = System.Text.Json.JsonSerializer.Serialize(roleData, options);
+                var config = new RoleConfig
                 {
-                    string err = await response.Content.ReadAsStringAsync();
-                    throw new Exception($"Erreur pour le rôle {roleKey} : {err}");
-                }
+                    // ❌ ANCIEN CODE : RoleId = roleKey,
+                    // ✅ NOUVEAU CODE CORRIGÉ :
+                    Id = roleKey,
+                    PermissionsJson = jsonString
+                };
+                DataSync.SaveLocal(config);
+
+                // 2. Mise dans la file d'attente (L'Outbox gérera la sérialisation de l'objet)
+                // En passant 'roleData' (l'objet dictionnaire) comme payload
+                DataSync.EnqueueOperation("RoleConfig", roleKey, "UPDATE", roleData);
             }
 
-            ShowToast("✅ Matrice des rôles enregistrée avec succès !");
+            // 3. Déclenchement du Moteur d'envoi en arrière-plan
+            _ = DataSync.PushPendingOperationsAsync(idToken);
+
+            ShowToast("✅ Matrice enregistrée ! (Synchronisation en arrière-plan)");
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("alert", "Erreur lors de la sauvegarde : " + ex.Message);
+            ShowToast("Erreur lors de la sauvegarde : " + ex.Message);
         }
         finally
         {

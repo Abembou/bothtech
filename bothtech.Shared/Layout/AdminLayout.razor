@@ -2,8 +2,10 @@
 @inject NavigationManager NavManager
 @inject IJSRuntime JSRuntime
 @using bothtech.Shared.Services
-@inject FirebaseService FirebaseService
+@using bothtech.Shared.Models
+@inject DataSyncService DataSync
 @implements IDisposable
+@inject IPlatformService _platformService
 
 <style>
     /* --- GESTION ROBUSTE DU RABATTEMENT DU MENU --- */
@@ -16,95 +18,82 @@
         border-right: 1px solid var(--border);
     }
 
-    /* Bureau : Le menu se rabat (la largeur passe à 0 pour laisser toute la place) */
     @@media (min-width: 769px) {
-        .sidebar.collapsed
-
-    {
-        width: 0 !important;
-        border-right: none !important;
-    }
-
-    .sidebar-overlay {
-        display: none !important;
-    }
-
-    }
-
-    /* Mobile : Le menu glisse par-dessus l'écran (off-canvas) */
-    @@media (max-width: 768px) {
-        .sidebar
-
-    {
-        position: fixed !important;
-        top: 0;
-        left: 0;
-        height: 100%;
-        z-index: 1050;
-        transform: translateX(-100%);
-        width: 260px !important;
-    }
-
-    .sidebar.open {
-        transform: translateX(0);
-    }
-
-    .sidebar-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 1040;
-    }
-
-        .sidebar-overlay.open {
-            display: block;
+        .sidebar.collapsed {
+            width: 0 !important;
+            border-right: none !important;
         }
 
+        .sidebar-overlay {
+            display: none !important;
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .sidebar {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            height: 100%;
+            z-index: 1050;
+            transform: translateX(-100%);
+            width: 260px !important;
+        }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1040;
+        }
+
+            .sidebar-overlay.open {
+                display: block;
+            }
     }
 </style>
 
 <div style="overflow: hidden; margin: 0; padding: 0; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; height: 100dvh;">
 
-    <!-- Son de notification -->
     <audio id="notificationSound" preload="auto">
         <source src="https://actions.google.com/sounds/v1/communications/pop_ding.ogg" type="audio/ogg">
     </audio>
 
-    <!-- Écran de chargement -->
     <div id="authSection" class="auth-wrapper" style="width: 100%; height: 100%; display: @(isAuthenticated ? "none" : "flex"); align-items: center; justify-content: center;">
         <div class="auth-card" style="text-align: center;">
             <img src="_content/bothtech.Shared/images/Both_Tech_Burkina.jpeg" alt="Logo" class="company-logo-img" style="width: 60px; height: 60px; border-radius: 8px; object-fit: cover; margin-bottom: 10px; display: @(hasCompanyLogo ? "inline-block" : "none");">
             <h1 class="brand-title company-name-display" style="color: var(--primary);"><span>@companyName</span></h1>
-            <p style="color: var(--text-muted); margin-top: 10px; font-size: 0.9rem; font-weight: 600;">Vérification des accès en cours...</p>
+            <p style="color: var(--text-muted); margin-top: 10px; font-size: 0.9rem; font-weight: 600;">Vérification locale des accès...</p>
             <div style="margin-top: 15px; width: 26px; height: 26px; border: 3px solid var(--primary-subtle); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; display: inline-block;"></div>
         </div>
     </div>
 
-    <!-- Interface d'Administration -->
     <div id="dashboardSection" class="app-layout" style="display: @(isAuthenticated ? "flex" : "none"); width: 100%; height: 100%;">
 
-        <!-- OVERLAY (Visible uniquement sur mobile quand le menu est ouvert) -->
         <div class="sidebar-overlay @(isMobileMenuOpen ? "open" : "")" id="sidebarOverlay" @onclick="ToggleMenu"></div>
 
-        <!-- BARRE LATÉRALE -->
         <aside class="sidebar @(isDesktopMenuCollapsed ? "collapsed" : "") @(isMobileMenuOpen ? "open" : "")" id="appSidebar">
             <div class="sidebar-brand">
-                <span class="company-name-display" style="font-weight: 800;">@companyName</span>
+                <span class="company-name-display" style="font-weight: 800; font-size: 1.1rem;">@companyName</span>
             </div>
             <nav class="nav-menu">
 
                 @if (HasPerm("produits", "lecture"))
                 {
-                    <NavLink href="/stock" class="nav-item shell-link" @onclick='() => SetTitle("Stocks")'>📦 Stocks</NavLink>
+                    <NavLink href="/admin/stock" class="nav-item shell-link" @onclick='() => SetTitle("Stocks")'>📦 Stocks</NavLink>
                 }
 
                 @if (HasPerm("commandes", "lecture") || HasPerm("comptoir", "lecture") || HasPerm("b2b", "lecture"))
                 {
-                    <NavLink href="/commandes" class="nav-item shell-link" style="justify-content: space-between;" @onclick='() => SetTitle("Ventes")'>
+                    <NavLink href="/vente/commandes" class="nav-item shell-link" style="justify-content: space-between;" @onclick='() => SetTitle("Ventes")'>
                         <span>📋 Ventes</span>
                         <span id="globalOrdersBadge" style="display: @(newOrdersCount > 0 ? "inline-block" : "none"); background:var(--danger); color:white; border-radius:10px; padding:2px 6px; font-size:0.65rem;">@newOrdersCount</span>
                     </NavLink>
@@ -112,22 +101,22 @@
 
                 @if (HasPerm("comptabilite", "lecture"))
                 {
-                    <NavLink href="/comptabilite" class="nav-item shell-link" @onclick='() => SetTitle("Comptabilité")'>💰 Comptabilité</NavLink>
+                    <NavLink href="/comptabilite/comptabilite" class="nav-item shell-link" @onclick='() => SetTitle("Comptabilité")'>💰 Comptabilité</NavLink>
                 }
 
                 @if (HasPerm("equipe", "lecture") || userRole == "rh")
                 {
-                    <NavLink href="/equipe" class="nav-item shell-link" @onclick='() => SetTitle("RH")'>👥 RH</NavLink>
+                    <NavLink href="/rh/equipe" class="nav-item shell-link" @onclick='() => SetTitle("RH")'>👥 RH</NavLink>
                 }
 
                 @if (userRole == "admin" || userRole == "maintenance")
                 {
-                    <NavLink href="/accords" class="nav-item shell-link" @onclick='() => SetTitle("Accords")'>⚖️ Accords</NavLink>
+                    <NavLink href="/admin/roles" class="nav-item shell-link" @onclick='() => SetTitle("Accords")'>⚖️ Accords</NavLink>
                 }
 
                 @if (HasPerm("messages", "lecture"))
                 {
-                    <NavLink href="/chat" class="nav-item shell-link" style="justify-content: space-between;" @onclick='() => SetTitle("Chat")'>
+                    <NavLink href="/vente/chat" class="nav-item shell-link" style="justify-content: space-between;" @onclick='() => SetTitle("Chat")'>
                         <span>💬 Chat</span>
                         <span id="globalChatsBadge" style="display: @(unreadChatsCount > 0 ? "inline-block" : "none"); background:var(--danger); color:white; border-radius:10px; padding:2px 6px; font-size:0.65rem;">@unreadChatsCount</span>
                     </NavLink>
@@ -135,24 +124,24 @@
 
                 @if (HasPerm("avis", "lecture"))
                 {
-                    <NavLink href="/avis" class="nav-item shell-link" @onclick='() => SetTitle("Avis")'>⭐ Avis</NavLink>
+                    <NavLink href="/admin/avis" class="nav-item shell-link" @onclick='() => SetTitle("Avis")'>⭐ Avis</NavLink>
                 }
 
                 @if (userRole == "maintenance")
                 {
-                    <NavLink href="/settings" class="nav-item shell-link" style="color: var(--primary); font-weight:bold;" @onclick='() => SetTitle("Paramètres")'>⚙ Paramètres</NavLink>
+                    <NavLink href="/maintenance/settings" class="nav-item shell-link" style="color: var(--primary); font-weight:bold;" @onclick='() => SetTitle("Paramètres")'>⚙ Paramètres</NavLink>
                 }
 
-                <NavLink href="/" class="nav-item" style="color: var(--success); font-weight:bold; margin-top: 15px; border-top: 1px solid var(--border); border-radius: 0;">🌐 Retour Boutique</NavLink>
+                @if (userRole == "maintenance")
+                {
+                    <NavLink href="/" class="nav-item" style="color: var(--success); font-weight:bold; margin-top: 15px; border-top: 1px solid var(--border); border-radius: 0;">🌐 Retour Boutique</NavLink>
+                }
                 <button class="nav-item" style="color: var(--danger); border-top: 1px solid var(--border); border-radius: 0; background: none; border: none; width: 100%; text-align: left; cursor: pointer;" @onclick="HandleLogout">🚪 Déconnexion</button>
-
             </nav>
         </aside>
 
-        <!-- ZONE DE CONTENU -->
         <div class="content-area" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; height: 100%;">
             <header class="top-header" style="flex-shrink: 0; padding: 12px 20px; border-bottom: 1px solid var(--border); background: #fff; margin: 0; display: flex; align-items: center; gap: 15px;">
-                <!-- BOUTON HAMBURGER INTERACTIF -->
                 <button id="mobileMenuBtn" type="button" class="menu-toggle-btn" @onclick="ToggleMenu" style="display: flex; align-items: center; justify-content: center; background: #f1f5f9; border: 1px solid var(--border); border-radius: 8px; font-size: 1.3rem; cursor: pointer; padding: 6px 12px; color: var(--text-main); transition: 0.2s;">☰</button>
                 <div style="margin-left: auto; text-align: right;">
                     <h1 class="page-title" style="font-size: 1.1rem; margin: 0;" id="shellTitle">@currentShellTitle</h1>
@@ -168,7 +157,6 @@
 </div>
 
 @code {
-    // Variables pour gérer indépendamment l'effet sur Bureau (rabattre) et Mobile (glisser)
     private bool isDesktopMenuCollapsed = false;
     private bool isMobileMenuOpen = false;
 
@@ -183,50 +171,71 @@
     private int unreadChatsCount = 0;
 
     private Dictionary<string, Dictionary<string, bool>> currentPermissions = new();
-    private System.Threading.Timer? _badgeRefreshTimer;
+    private System.Threading.Timer? _globalHeartbeatTimer;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            await CheckUserSession();
-
-            if (isAuthenticated)
+            try
             {
-                _badgeRefreshTimer = new System.Threading.Timer(async _ => await RefreshBadges(), null, 0, 10000);
+                // PROTÉGÉ : Si SQLite plante ici, l'erreur est capturée en bas
+                await CheckUserSession();
+
+                if (isAuthenticated)
+                {
+                    // Minuteur d'arrière-plan pour la synchronisation
+                    _globalHeartbeatTimer = new System.Threading.Timer(async _ => await GlobalHeartbeatAndSync(), null, 0, 10000);
+
+                    // PROTÉGÉ : Si la page se ferme pendant la lecture, TaskCanceledException est capturée
+                    string idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
+
+                    if (!string.IsNullOrEmpty(idToken))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await DataSync.PullProductsFromFirebaseAsync();
+                                await DataSync.PullRolesFromFirebaseAsync(idToken); // Aspiration des rôles
+
+                                if (userRole == "admin" || userRole == "rh" || userRole == "maintenance" || userRole == "secretaire")
+                                {
+                                    await DataSync.PullStaffFromFirebaseAsync(idToken);
+                                }
+
+                                await InvokeAsync(() =>
+                                {
+                                    try
+                                    {
+                                        LoadLocalSettings();
+                                        LoadUserPermissionsLocal(userRole);
+                                        StateHasChanged();
+                                    }
+                                    catch (Exception uiEx)
+                                    {
+                                        Console.WriteLine($"Erreur UI AdminLayout : {uiEx.Message}");
+                                    }
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Erreur synchro AdminLayout : {ex.Message}");
+                            }
+                        });
+                    }
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                // Le composant a été détruit avant la fin du chargement, on ignore.
+            }
+            catch (Exception ex)
+            {
+                // CAPTURE LE CRASH SQLITE : Empêche la boucle infinie de redirection
+                Console.WriteLine($"Erreur critique globale dans AdminLayout : {ex.Message}");
             }
         }
-    }
-
-    private void ToggleMenu()
-    {
-        // On inverse l'état pour les deux formats (le CSS s'occupera d'appliquer le bon effet selon la taille de l'écran)
-        isDesktopMenuCollapsed = !isDesktopMenuCollapsed;
-        isMobileMenuOpen = !isMobileMenuOpen;
-        StateHasChanged();
-    }
-
-    private void SetTitle(string title)
-    {
-        currentShellTitle = title;
-        // On ferme automatiquement le menu uniquement sur Mobile après un clic
-        if (isMobileMenuOpen)
-        {
-            isMobileMenuOpen = false;
-            // On s'assure de synchroniser la variable bureau pour qu'elle reste cohérente
-            isDesktopMenuCollapsed = false;
-        }
-    }
-
-    private bool HasPerm(string module, string action)
-    {
-        if (userRole == "admin" || userRole == "maintenance") return true;
-
-        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
-        {
-            return allowed;
-        }
-        return false;
     }
 
     private async Task CheckUserSession()
@@ -240,7 +249,14 @@
 
             if (string.IsNullOrEmpty(savedEmail) || savedRole == "client" || savedRole == "detaillant")
             {
-                NavManager.NavigateTo("/", true);
+                NavManager.NavigateTo("/");
+                return;
+            }
+
+            if (!_platformService.IsMaui && savedRole != "maintenance")
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "L'accès administratif est strictement réservé à l'application native.");
+                await HandleLogout();
                 return;
             }
 
@@ -248,37 +264,71 @@
             isAuthenticated = true;
             userDisplayInfo = $"{savedEmail} ({(userRole == "admin" ? "Administrateur" : userRole)})";
 
+            LoadLocalSettings();
+            LoadUserPermissionsLocal(userRole); // Chargement immédiat des permissions depuis SQLite local
+
             StateHasChanged();
         }
         catch
         {
-            NavManager.NavigateTo("/", true);
+            NavManager.NavigateTo("/");
         }
     }
 
-    private async Task RefreshBadges()
+    private void LoadLocalSettings()
     {
         try
         {
-            var orders = await FirebaseService.GetOrdersAsync();
-            int currentNewOrders = orders.Values.Count(o => o.Status == "nouveau");
+            var settings = DataSync.GetAllLocal<CompanySettings>().FirstOrDefault();
+            if (settings != null && !string.IsNullOrEmpty(settings.Name))
+            {
+                companyName = settings.Name;
+            }
+        }
+        catch { }
+    }
+
+    private async Task GlobalHeartbeatAndSync()
+    {
+        try
+        {
+            var localOrders = DataSync.GetAllLocal<OrderModel>();
+            int currentNewOrders = localOrders.Count(o => o.Status == "nouveau");
 
             if (currentNewOrders != newOrdersCount)
             {
                 if (currentNewOrders > newOrdersCount)
                 {
-                    try
-                    {
-                        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('notificationSound').play().catch(e => console.log('Son bloqué'))");
-                    }
-                    catch { }
+                    try { await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('notificationSound').play().catch(e => console.log('Son bloqué'))"); } catch { }
                 }
-
                 newOrdersCount = currentNewOrders;
                 await InvokeAsync(StateHasChanged);
             }
+
+            string token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken");
+            if (!string.IsNullOrEmpty(token))
+            {
+                _ = DataSync.PushPendingOperationsAsync(token);
+            }
         }
         catch { }
+    }
+
+    private void ToggleMenu()
+    {
+        isDesktopMenuCollapsed = !isDesktopMenuCollapsed;
+        isMobileMenuOpen = !isMobileMenuOpen;
+        StateHasChanged();
+    }
+
+    private void SetTitle(string title)
+    {
+        currentShellTitle = title;
+        if (isMobileMenuOpen)
+        {
+            isMobileMenuOpen = false;
+            isDesktopMenuCollapsed = false;
+        }
     }
 
     private async Task HandleLogout()
@@ -297,6 +347,127 @@
 
     public void Dispose()
     {
-        _badgeRefreshTimer?.Dispose();
+        _globalHeartbeatTimer?.Dispose();
+    }
+    private bool HasPerm(string module, string action)
+    {
+        // 1. Accès total pour les admins
+        if (userRole == "admin" || userRole == "maintenance") return true;
+
+        // 2. Sécurité de secours si la base de données locale des rôles est vide
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            if (userRole == "comptable" && module.ToLower() == "comptabilite") return true;
+            if (userRole == "commercial" && (module.ToLower() == "produits" || module.ToLower() == "commandes" || module.ToLower() == "b2b" || module.ToLower() == "comptoir")) return true;
+            if (userRole == "livreur" && module.ToLower() == "commandes") return true;
+            if (userRole == "rh" && module.ToLower() == "equipe") return true;
+            if (userRole == "secretaire" && (module.ToLower() == "commandes" || module.ToLower() == "messages")) return true;
+            return false;
+        }
+
+        // 3. Vérification stricte via le dictionnaire insensible à la casse
+        if (currentPermissions.TryGetValue(module, out var actions) && actions.TryGetValue(action, out var allowed))
+        {
+            return allowed;
+        }
+
+        return false;
+    }
+    private void LoadUserPermissionsLocal(string role)
+    {
+        try
+        {
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+            string cleanRole = (role ?? "").ToLower().Trim();
+            var myRoleConfig = localRoles.FirstOrDefault(r => r.Id != null && r.Id.ToLower().Trim() == cleanRole);
+
+            if (myRoleConfig != null && !string.IsNullOrEmpty(myRoleConfig.PermissionsJson))
+            {
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(myRoleConfig.PermissionsJson, options);
+
+                if (parsed != null && parsed.Count > 0)
+                {
+                    // Reconstruction pour ignorer la casse des clés (ex: "Produits" == "produits")
+                    currentPermissions = new Dictionary<string, Dictionary<string, bool>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var module in parsed)
+                    {
+                        var actionDict = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var action in module.Value)
+                        {
+                            actionDict[action.Key] = action.Value;
+                        }
+                        currentPermissions[module.Key] = actionDict;
+                    }
+                }
+                else
+                {
+                    currentPermissions = new();
+                }
+            }
+            else
+            {
+                currentPermissions = new();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Erreur lecture permissions locales : " + ex.Message);
+            currentPermissions = new();
+        }
+    }
+    private void GoToAdminDashboard()
+    {
+        if (userRole == "client") return;
+
+        string targetUrl = "/";
+
+        if (userRole == "admin" || userRole == "maintenance")
+        {
+            targetUrl = "/admin/stock";
+        }
+        else
+        {
+            // Vérification intelligente basée sur n'importe quel droit actif
+            if (HasAnyPerm("produits")) targetUrl = "/admin/stock";
+            else if (HasAnyPerm("commandes") || HasAnyPerm("comptoir") || HasAnyPerm("b2b")) targetUrl = "/vente/commandes";
+            else if (HasAnyPerm("comptabilite")) targetUrl = "/comptabilite/comptabilite";
+            else if (HasAnyPerm("equipe")) targetUrl = "/rh/equipe";
+            else if (HasAnyPerm("messages")) targetUrl = "/vente/chat";
+            else if (HasAnyPerm("avis")) targetUrl = "/admin/avis";
+            else
+            {
+                // L'agent n'a AUCUN droit, on le déconnecte au lieu de le forcer sur /admin/stock
+                _ = JSRuntime.InvokeVoidAsync("alert", "Vous n'avez aucun droit d'accès configuré. Déconnexion automatique.");
+                _ = HandleLogout();
+                return;
+            }
+        }
+
+        NavManager.NavigateTo(targetUrl);
+    }
+
+    // Nouvelle méthode dédiée au routage global
+    private bool HasAnyPerm(string module)
+    {
+        if (userRole == "admin" || userRole == "maintenance") return true;
+
+        if (currentPermissions != null && currentPermissions.TryGetValue(module, out var actions))
+        {
+            return actions.Values.Any(allowed => allowed == true);
+        }
+
+        // Sécurité de secours si la base locale est vide
+        if (currentPermissions == null || currentPermissions.Count == 0)
+        {
+            string safeModule = module.ToLower();
+            if (userRole == "comptable" && safeModule == "comptabilite") return true;
+            if (userRole == "commercial" && (safeModule == "produits" || safeModule == "commandes" || safeModule == "b2b" || safeModule == "comptoir")) return true;
+            if (userRole == "livreur" && safeModule == "commandes") return true;
+            if (userRole == "rh" && safeModule == "equipe") return true;
+            if (userRole == "secretaire" && (safeModule == "commandes" || safeModule == "messages")) return true;
+        }
+
+        return false;
     }
 }

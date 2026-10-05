@@ -66,25 +66,36 @@ namespace bothtech.Shared.Models
 
     public class Review
     {
-        [System.Text.Json.Serialization.JsonPropertyName("id")]
-        public string Id { get; set; } = Guid.NewGuid().ToString();
+        
+            [System.Text.Json.Serialization.JsonPropertyName("id")]
+            public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        [System.Text.Json.Serialization.JsonPropertyName("userId")]
-        public string UserId { get; set; } = "";
+            [System.Text.Json.Serialization.JsonPropertyName("userId")]
+            public string UserId { get; set; } = "";
 
-        [System.Text.Json.Serialization.JsonPropertyName("userName")]
-        public string UserName { get; set; } = "";
+            // 🔥 Modifié pour correspondre à "author" envoyé par le JS
+            [System.Text.Json.Serialization.JsonPropertyName("author")]
+            public string UserName { get; set; } = "";
 
-        [System.Text.Json.Serialization.JsonPropertyName("userEmail")]
-        public string UserEmail { get; set; } = "";
+            [System.Text.Json.Serialization.JsonPropertyName("userEmail")]
+            public string UserEmail { get; set; } = "";
 
-        [System.Text.Json.Serialization.JsonPropertyName("rating")]
-        public int Rating { get; set; }
+            [System.Text.Json.Serialization.JsonPropertyName("rating")]
+            public int Rating { get; set; }
 
-        [System.Text.Json.Serialization.JsonPropertyName("comment")]
-        public string Comment { get; set; } = "";
+            [System.Text.Json.Serialization.JsonPropertyName("comment")]
+            public string Comment { get; set; } = "";
 
-        [System.Text.Json.Serialization.JsonPropertyName("date")]
-        public DateTime Date { get; set; } = DateTime.Now;
+            // 🔥 Modifié pour correspondre à "createdAt" (long/timestamp) envoyé par le JS
+            [System.Text.Json.Serialization.JsonPropertyName("createdAt")]
+            public long CreatedAtTimestamp { get; set; }
+
+            // Raccourci optionnel pour afficher la date facilement dans vos composants Razor
+            [Ignore]
+            [System.Text.Json.Serialization.JsonIgnore]
+            public DateTime DisplayDate => CreatedAtTimestamp > 0
+                ? DateTimeOffset.FromUnixTimeMilliseconds(CreatedAtTimestamp).LocalDateTime
+                : DateTime.Now;
+        
     }
 }

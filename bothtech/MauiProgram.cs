@@ -9,15 +9,11 @@ using bothtech.Shared.Services;
 
 using Microsoft.AspNetCore.Components.WebView.Maui;
 using Microsoft.AspNetCore.Components.Routing;
-using Microsoft.Extensions.Configuration;
-using System.Reflection;
 
 #if WINDOWS
 using System.Net; // Indispensable pour le serveur d'écoute
 #else
 using Microsoft.Maui.Authentication; // Pour Android/iOS
-
-
 #endif
 
 // 👇 Requis pour intercepter les permissions et fichiers du WebView sur Android
@@ -131,17 +127,17 @@ namespace bothtech
                     };
                 });
 
+            // ✅ INJECTIONS CORRECTES SANS DOUBLONS
             builder.Services.AddSingleton<FirebaseService>();
             builder.Services.AddSingleton<DatabaseService>();
             builder.Services.AddSingleton<CartService>();
-            builder.Services.AddSingleton<IPlatformService>(new PlatformService(true));
-            builder.Services.AddScoped<SyncService>(sp =>
-            {
-                var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
-                var dbService = sp.GetRequiredService<DatabaseService>();
-                return new SyncService(httpClientFactory.CreateClient("FirebaseClient"), dbService);
-            });
 
+            // ✅ NOUVEAU SERVICE OFFLINE-FIRST
+            builder.Services.AddSingleton<DataSyncService>();
+
+            builder.Services.AddSingleton<IPlatformService>(new PlatformService(true)); // L'unique et correcte définition
+
+            builder.Services.AddSingleton<SyncService>();
             builder.Services.AddAuthorizationCore();
             builder.Services.AddScoped<CustomAuthStateProvider>();
             builder.Services.AddScoped<AuthenticationStateProvider>(provider => provider.GetRequiredService<CustomAuthStateProvider>());

@@ -1,0 +1,368 @@
+﻿@page "/admin/roles"
+@layout bothtech.Shared.Layout.AdminLayout
+@using bothtech.Shared.Services
+@using bothtech.Shared.Models
+@inject IJSRuntime JSRuntime
+@inject DataSyncService DataSync
+@inject NavigationManager NavManager
+
+<PageTitle>Permissions du système | Console Admin</PageTitle>
+
+<div style="background: transparent; padding: 20px; margin: 0; overflow-x: hidden; padding-bottom: calc(85px + env(safe-area-inset-bottom, 20px)); font-family: 'Plus Jakarta Sans', sans-serif;">
+
+    @if (isLoading)
+    {
+        <div style="text-align:center; padding:50px; color:var(--text-muted);">
+            <h3>Chargement de la matrice des permissions...</h3>
+        </div>
+    }
+    else
+    {
+        <section class="card">
+            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
+                <h2 class="card-title" style="margin: 0;">Permissions du système</h2>
+                <button class="btn btn-primary" style="background:#9333ea; border-color:#9333ea; cursor:pointer;" @onclick="SaveRolesMatrix" disabled="@isSaving">
+                    @(isSaving ? "Sauvegarde en cours..." : "💾 Sauvegarder la Matrice")
+                </button>
+            </div>
+
+            <div style="padding: 15px; background: #f3e8ff; color: #6b21a8; font-size: 0.85rem; border-bottom: 1px solid var(--border); line-height: 1.5;">
+                Cochez les cases pour autoriser un rôle à accéder ou modifier un module spécifique.<br>
+                <b>Attention : Les rôles "Admin" et "Maintenance" ont tous les droits par défaut, ils ne figurent donc pas dans cette grille.</b>
+            </div>
+
+            <div class="table-responsive" style="max-height: 65vh; overflow: auto;">
+                <table class="matrix-table" id="rolesMatrix">
+                    <thead>
+                        <tr>
+                            <th>Module \ Rôle</th>
+                            @foreach (var role in rolesList)
+                            {
+                                <th style="text-transform: capitalize;">@role</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var mod in modulesDef)
+                        {
+                            <tr style="background:#f1f5f9;">
+                                <td colspan="@(rolesList.Length + 1)" style="text-align:left; font-weight:bold; color:var(--primary); padding-top:15px; border-bottom: 1px solid var(--border);">
+                                    @mod.Label
+                                </td>
+                            </tr>
+                            @foreach (var action in mod.Actions)
+                            {
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="font-size: 0.9rem;">Droit de <span style="text-transform:capitalize; font-weight: bold;">@action</span></td>
+                                    @foreach (var role in rolesList)
+                                    {
+                                        <td>
+                                            <input type="checkbox"
+                                                   style="cursor: pointer; width: 18px; height: 18px; accent-color: var(--primary);"
+                                                   checked="@GetPermission(role, mod.Id, action)"
+                                                   @onchange="(e) => SetPermission(role, mod.Id, action, (bool)(e.Value ?? false))">
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    <!-- TOAST DE NOTIFICATION -->
+    <div id="toast" style="display: @(string.IsNullOrEmpty(toastMessage) ? "none" : "block"); position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 12px 24px; border-radius: 8px; z-index: 9999; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">@toastMessage</div>
+
+</div>
+
+<style>
+    .matrix-table th,
+    .matrix-table td {
+        text-align: center !important;
+        vertical-align: middle;
+        padding: 10px;
+    }
+
+        .matrix-table th:first-child,
+        .matrix-table td:first-child {
+            text-align: left !important;
+            width: 220px;
+        }
+
+    .matrix-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+        .matrix-table th {
+            background: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+</style>
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string toastMessage = "";
+    private string idToken = "";
+    private string userRole = "client";
+
+    private readonly string[] rolesList = { "commercial", "secretaire", "comptable", "rh", "livreur", "chauffeur", "gardien", "partenaire" };
+
+    private readonly List<ModuleDefinition> modulesDef = new()
+    {
+        new() { Id = "produits", Label = "📦 Stocks & Produits", Actions = new() { "lecture", "ajouter", "modifier", "supprimer" } },
+        new() { Id = "commandes", Label = "🛒 Commandes Ligne", Actions = new() { "lecture", "modifier" } },
+        new() { Id = "comptoir", Label = "🏪 Vente Comptoir", Actions = new() { "lecture", "ajouter" } },
+        new() { Id = "b2b", Label = "🤝 Vente B2B", Actions = new() { "lecture", "ajouter" } },
+        new() { Id = "comptabilite", Label = "💰 Comptabilité & Caisse", Actions = new() { "lecture", "ajouter", "supprimer" } },
+        new() { Id = "equipe", Label = "👥 Ressources Humaines", Actions = new() { "lecture", "ajouter", "modifier", "supprimer" } },
+        new() { Id = "avis", Label = "⭐ Avis Clients", Actions = new() { "lecture", "supprimer" } },
+        new() { Id = "messages", Label = "💬 Chat Clients", Actions = new() { "lecture", "modifier" } }
+    };
+
+    // Structure de données locale pour les rôles : currentRolesData[role][module][action] = bool
+    private Dictionary<string, Dictionary<string, Dictionary<string, bool>>> currentRolesData = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // 1. Authentification et vérification stricte du rôle SuperUser
+                userRole = (await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userrole") ?? "client").ToLower().Trim();
+
+                if (userRole != "admin" && userRole != "maintenance")
+                {
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                // Récupération souple du jeton (On prend ce qu'il y a dans le localStorage en priorité pour éviter l'expiration)
+                idToken = await JSRuntime.InvokeAsync<string>("eval", @"
+                    (async () => {
+                        let token = localStorage.getItem('bothtech_idtoken');
+                        if (token) return token;
+
+                        const getToken = async () => {
+                            try {
+                                if (window.auth && window.auth.currentUser) return await window.auth.currentUser.getIdToken(true);
+                                return await new Promise(resolve => {
+                                    if (!window.auth) return resolve('');
+                                    const unsubscribe = window.auth.onAuthStateChanged(async u => {
+                                        unsubscribe();
+                                        try { resolve(u ? await u.getIdToken(true) : ''); } catch(e) { resolve(''); }
+                                    });
+                                    setTimeout(() => { unsubscribe(); resolve(''); }, 2000);
+                                });
+                            } catch(err) { return ''; }
+                        };
+                        token = await getToken();
+                        if (token) { localStorage.setItem('bothtech_idtoken', token); return token; }
+                        return '';
+                    })()
+                ");
+
+                // On ne bloque plus si idToken est vide, on se fie au userRole stocké localement.
+                // Si on a vraiment besoin d'expulser, on vérifie si un UserId existe.
+                string currentAdminUid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
+                if (string.IsNullOrEmpty(currentAdminUid))
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Votre session a expiré.");
+                    NavManager.NavigateTo("/", true);
+                    return;
+                }
+
+                // 2. Initialisation et chargement des données SQLite
+                InitializeEmptyMatrix();
+                LoadLocalRolesData();
+
+                // 3. Déclenchement de la synchro en arrière-plan
+                if (!string.IsNullOrEmpty(idToken))
+                {
+                    _ = DataSync.PushPendingOperationsAsync(idToken);
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await DataSync.PullRolesFromFirebaseAsync(idToken);
+                            await InvokeAsync(() =>
+                            {
+                                LoadLocalRolesData();
+                                StateHasChanged();
+                            });
+                        }
+                        catch (Exception bgEx)
+                        {
+                            Console.WriteLine($"Erreur Pull Roles : {bgEx.Message}");
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erreur Init Roles : {ex.Message}");
+                NavManager.NavigateTo("/", true);
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void InitializeEmptyMatrix()
+    {
+        currentRolesData.Clear();
+        foreach (var role in rolesList)
+        {
+            currentRolesData[role] = new();
+            foreach (var mod in modulesDef)
+            {
+                currentRolesData[role][mod.Id] = new();
+                foreach (var action in mod.Actions)
+                {
+                    currentRolesData[role][mod.Id][action] = false;
+                }
+            }
+        }
+    }
+
+    private void LoadLocalRolesData()
+    {
+        try
+        {
+            var localRoles = DataSync.GetAllLocal<RoleConfig>();
+
+            foreach (var dbRole in localRoles)
+            {
+                if (dbRole.Id != null && rolesList.Contains(dbRole.Id.ToLower().Trim()) && !string.IsNullOrEmpty(dbRole.PermissionsJson))
+                {
+                    var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var parsedDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(dbRole.PermissionsJson, options);
+
+                    if (parsedDict != null)
+                    {
+                        foreach (var mod in parsedDict)
+                        {
+                            foreach (var act in mod.Value)
+                            {
+                                SetPermission(dbRole.Id, mod.Key.ToLower().Trim(), act.Key.ToLower().Trim(), act.Value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erreur chargement des rôles : {ex.Message}");
+        }
+    }
+
+    private bool GetPermission(string role, string moduleId, string action)
+    {
+        string safeRole = (role ?? "").ToLower().Trim();
+        string safeModule = (moduleId ?? "").ToLower().Trim();
+        string safeAction = (action ?? "").ToLower().Trim();
+
+        if (currentRolesData.TryGetValue(safeRole, out var modDict) &&
+            modDict.TryGetValue(safeModule, out var actionDict) &&
+            actionDict.TryGetValue(safeAction, out var val))
+        {
+            return val;
+        }
+        return false;
+    }
+
+    private void SetPermission(string role, string moduleId, string action, bool value)
+    {
+        string safeRole = (role ?? "").ToLower().Trim();
+        string safeModule = (moduleId ?? "").ToLower().Trim();
+        string safeAction = (action ?? "").ToLower().Trim();
+
+        if (!currentRolesData.ContainsKey(safeRole)) currentRolesData[safeRole] = new();
+        if (!currentRolesData[safeRole].ContainsKey(safeModule)) currentRolesData[safeRole][safeModule] = new();
+
+        currentRolesData[safeRole][safeModule][safeAction] = value;
+    }
+
+    private async Task SaveRolesMatrix()
+    {
+        // Double vérification de sécurité au moment de la sauvegarde
+        if (userRole != "admin" && userRole != "maintenance")
+        {
+            ShowToast("❌ Action non autorisée.");
+            return;
+        }
+
+        isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            foreach (var role in rolesList)
+            {
+                var rolePermissions = currentRolesData[role];
+
+                var options = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+                string jsonString = System.Text.Json.JsonSerializer.Serialize(rolePermissions, options);
+
+                var roleModel = new RoleConfig
+                {
+                    Id = role.ToLower().Trim(),
+                    PermissionsJson = jsonString
+                };
+
+                // 1. Sauvegarde locale
+                DataSync.SaveLocal(roleModel);
+
+                // 2. Envoi vers l'Outbox
+                DataSync.EnqueueOperation("RoleConfig", role.ToLower().Trim(), "UPDATE", rolePermissions);
+            }
+
+            // 3. Lancement de la synchronisation
+            if (!string.IsNullOrEmpty(idToken))
+            {
+                _ = DataSync.PushPendingOperationsAsync(idToken);
+            }
+
+            ShowToast("✅ Matrice sauvegardée et synchronisée avec succès !");
+        }
+        catch (Exception err)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Erreur lors de la sauvegarde : " + err.Message);
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowToast(string msg)
+    {
+        toastMessage = msg;
+        StateHasChanged();
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            toastMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    public class ModuleDefinition
+    {
+        public string Id { get; set; } = "";
+        public string Label { get; set; } = "";
+        public List<string> Actions { get; set; } = new();
+    }
+}

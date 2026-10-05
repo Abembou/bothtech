@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace bothtech.Shared.Models;
@@ -27,4 +28,10 @@ public class User
     public int BaseSalary { get; set; }
     public int CommissionPct { get; set; }
     // (Ajoutez les autres champs comme Iuts, Cnss, etc. selon vos besoins)
+    // AJOUTS POUR LE CHAT
+    [JsonPropertyName("shopName")]
+    public string? ShopName { get; set; }
+
+    [JsonPropertyName("critique")]
+    public bool Critique { get; set; }
 }

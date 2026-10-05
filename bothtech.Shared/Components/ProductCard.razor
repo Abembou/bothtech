@@ -1,8 +1,9 @@
 ﻿@using bothtech.Shared.Models
+@using bothtech.Shared.Services
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Authorization
 @inject AuthenticationStateProvider AuthStateProvider
-@inject FirebaseService FirebaseService
+@inject DataSyncService DataSync
 @inject IJSRuntime JSRuntime
 
 <article class="product-card @(IsOutOfStock ? "out-of-stock" : "")">
@@ -110,20 +111,15 @@
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
                                     <div>
                                         <strong style="color: var(--dark); font-size: 0.95rem;">@(string.IsNullOrWhiteSpace(review.UserName) ? "Client" : review.UserName)</strong>
-                                        <span style="font-size: 0.75rem; color: var(--gray-600); margin-left: 8px;">@review.Date.ToString("dd/MM/yyyy HH:mm")</span>
+                                        <span style="font-size: 0.75rem; color: var(--gray-600); margin-left: 8px;">@review.DisplayDate.ToString("dd/MM/yyyy HH:mm")</span>
                                     </div>
 
-                                    @* ✅ VERIFICATION SOLIDE : Ignore la casse de l'email *@
                                     @if ((!string.IsNullOrEmpty(_currentFirebaseUid) && review.UserId == _currentFirebaseUid) ||
                                                             (!string.IsNullOrEmpty(_currentUserEmail) && review.UserEmail.Equals(_currentUserEmail, StringComparison.OrdinalIgnoreCase)))
                                     {
                                         <div style="display: flex; gap: 10px;">
-                                            <button @onclick="() => EditReview(review)" style="background: none; border: none; color: var(--primary); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">
-                                                Modifier
-                                            </button>
-                                            <button @onclick="() => DeleteReview(review.Id)" style="background: none; border: none; color: var(--danger); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">
-                                                Supprimer
-                                            </button>
+                                            <button @onclick="() => EditReview(review)" style="background: none; border: none; color: var(--primary); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">Modifier</button>
+                                            <button @onclick="() => DeleteReviewOfflineFirst(review.Id)" style="background: none; border: none; color: var(--danger); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">Supprimer</button>
                                         </div>
                                     }
                                 </div>
@@ -174,7 +170,7 @@
                             <textarea @bind="_reviewDraftText" placeholder="Partagez votre expérience avec ce produit..." style="width: 100%; min-height: 80px; padding: 10px; border-radius: 6px; border: 1px solid #ccc; outline: none; margin-bottom: 10px; font-family: inherit; font-size: 0.9rem; resize: vertical;"></textarea>
 
                             <div style="display: flex; gap: 10px;">
-                                <button class="btn-add-cart" style="flex: 1; padding: 10px; font-size: 0.9rem;" @onclick="SaveReview" disabled="@(string.IsNullOrWhiteSpace(_reviewDraftText) || _isSaving)">
+                                <button class="btn-add-cart" style="flex: 1; padding: 10px; font-size: 0.9rem;" @onclick="SaveReviewOfflineFirst" disabled="@(string.IsNullOrWhiteSpace(_reviewDraftText) || _isSaving)">
                                     @if (_isSaving)
                                     {
                                         <span>Patientez...</span>
@@ -230,14 +226,12 @@
 
         if (user.Identity != null && user.Identity.IsAuthenticated)
         {
-            // ✅ On force le nom pour qu'il ne soit jamais vide
             _currentUserName = user.Identity.Name;
             if (string.IsNullOrWhiteSpace(_currentUserName)) _currentUserName = "Client BothTech";
 
             var emailClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Email || c.Type == "email");
             _currentUserEmail = emailClaim?.Value ?? "";
 
-            // ✅ Récupération ultra-sécurisée de l'UID Firebase directement depuis les Claims Auth0/Google
             var uidClaim = user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier || c.Type == "user_id" || c.Type == "sub");
             if (uidClaim != null) _currentFirebaseUid = uidClaim.Value;
         }
@@ -267,7 +261,7 @@
     {
         if (Product.Reviews != null)
         {
-            _productReviews = Product.Reviews.Values.OrderByDescending(r => r.Date).ToList();
+            _productReviews = Product.Reviews.Values.OrderByDescending(r => r.CreatedAtTimestamp).ToList();
         }
     }
 
@@ -296,7 +290,10 @@
         _reviewErrorMessage = "";
     }
 
-    private async Task SaveReview()
+    // ===================================================================
+    // CRÉATION / MODIFICATION OFFLINE D'UN AVIS
+    // ===================================================================
+    private async Task SaveReviewOfflineFirst()
     {
         if (string.IsNullOrWhiteSpace(_reviewDraftText)) return;
         _isSaving = true;
@@ -305,42 +302,53 @@
         try
         {
             string idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
-
-            // On utilise l'UID trouvé au démarrage (100% fiable) ou le local storage en secours
             string uid = _currentFirebaseUid;
             if (string.IsNullOrEmpty(uid)) uid = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_userid") ?? "";
 
-            if (string.IsNullOrEmpty(idToken) || string.IsNullOrEmpty(uid))
-            {
-                _reviewErrorMessage = "Session invalide. Veuillez vous déconnecter puis vous reconnecter.";
-                return;
-            }
+            if (Product.Reviews == null) Product.Reviews = new Dictionary<string, Review>();
 
             if (_reviewBeingEdited != null)
             {
+                // Modification de l'avis existant
                 _reviewBeingEdited.Comment = _reviewDraftText;
                 _reviewBeingEdited.Rating = _reviewDraftRating;
-                _reviewBeingEdited.Date = DateTime.Now;
+                _reviewBeingEdited.CreatedAtTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-                await FirebaseService.UpdateProductReviewAsync(Product.Id, _reviewBeingEdited.Id, _reviewBeingEdited, idToken);
+                // 1. Sauvegarde SQLite (On enregistre le produit avec son nouvel avis)
+                DataSync.SaveLocal(Product);
+
+                // 2. Outbox Firebase (Mise à jour ciblée)
+                string reviewPath = $"{Product.Id}/reviews/{_reviewBeingEdited.Id}";
+                DataSync.EnqueueOperation("Product", reviewPath, "UPDATE", _reviewBeingEdited);
             }
             else
             {
+                // Création d'un nouvel avis
                 var newReview = new Review
                 {
-                    Id = Guid.NewGuid().ToString(),
+                    Id = Guid.NewGuid().ToString("N"),
                     UserId = uid,
                     UserName = string.IsNullOrWhiteSpace(_currentUserName) ? "Client BothTech" : _currentUserName,
                     UserEmail = _currentUserEmail,
                     Comment = _reviewDraftText,
                     Rating = _reviewDraftRating,
-                    Date = DateTime.Now
+                    CreatedAtTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
 
-                if (Product.Reviews == null) Product.Reviews = new Dictionary<string, Review>();
                 Product.Reviews[newReview.Id] = newReview;
 
-                await FirebaseService.AddProductReviewAsync(Product.Id, newReview, idToken);
+                // 1. Sauvegarde SQLite
+                DataSync.SaveLocal(Product);
+
+                // 2. Outbox Firebase (Mise à jour ciblée du nouveau noeud)
+                string reviewPath = $"{Product.Id}/reviews/{newReview.Id}";
+                DataSync.EnqueueOperation("Product", reviewPath, "UPDATE", newReview);
+            }
+
+            // Déclenchement du moteur
+            if (!string.IsNullOrEmpty(idToken))
+            {
+                _ = DataSync.PushPendingOperationsAsync(idToken);
             }
 
             UpdateAverageRating();
@@ -349,29 +357,19 @@
         }
         catch (Exception ex)
         {
-            if (Product.Reviews != null && Product.Reviews.Values.Any(r => r.Comment == _reviewDraftText))
-            {
-                _reviewErrorMessage = "";
-                UpdateAverageRating();
-                LoadLocalReviews();
-                CancelEdit();
-            }
-            else if (ex.Message.Contains("Unauthorized") || ex.Message.Contains("401"))
-            {
-                _reviewErrorMessage = "Votre session a expiré (1h). Veuillez vous déconnecter et vous reconnecter.";
-            }
-            else
-            {
-                _reviewErrorMessage = $"Erreur Firebase : {ex.Message}";
-            }
+            _reviewErrorMessage = $"Erreur : {ex.Message}";
         }
         finally
         {
             _isSaving = false;
+            StateHasChanged();
         }
     }
 
-    private async Task DeleteReview(string reviewId)
+    // ===================================================================
+    // SUPPRESSION OFFLINE D'UN AVIS
+    // ===================================================================
+    private async Task DeleteReviewOfflineFirst(string reviewId)
     {
         bool confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Voulez-vous vraiment supprimer cet avis ?");
         if (!confirm) return;
@@ -382,18 +380,21 @@
         {
             string idToken = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "bothtech_idtoken") ?? "";
 
-            if (string.IsNullOrEmpty(idToken))
-            {
-                _reviewErrorMessage = "Session invalide. Veuillez vous reconnecter.";
-                StateHasChanged();
-                return;
-            }
-
-            await FirebaseService.DeleteProductReviewAsync(Product.Id, reviewId, idToken);
-
             if (Product.Reviews != null && Product.Reviews.ContainsKey(reviewId))
             {
+                // 1. Suppression Locale
                 Product.Reviews.Remove(reviewId);
+                DataSync.SaveLocal(Product);
+
+                // 2. Suppression dans la file d'attente Firebase
+                string reviewPath = $"{Product.Id}/reviews/{reviewId}";
+                DataSync.EnqueueOperation<object>("Product", reviewPath, "DELETE", null);
+
+                // 3. Déclenchement
+                if (!string.IsNullOrEmpty(idToken))
+                {
+                    _ = DataSync.PushPendingOperationsAsync(idToken);
+                }
             }
 
             UpdateAverageRating();
@@ -402,14 +403,7 @@
         }
         catch (Exception ex)
         {
-            if (ex.Message.Contains("Unauthorized") || ex.Message.Contains("401"))
-            {
-                _reviewErrorMessage = "Session expirée. Veuillez vous reconnecter.";
-            }
-            else
-            {
-                _reviewErrorMessage = $"Erreur suppression : {ex.Message}";
-            }
+            _reviewErrorMessage = $"Erreur suppression : {ex.Message}";
             StateHasChanged();
         }
     }
@@ -439,7 +433,7 @@
         ? "_content/bothtech.Shared/images/default.jpg"
         : Product.ImageUrl;
 
-    private string FormatMoney(int amount)
+    private string FormatMoney(decimal amount) // Changé de int à decimal pour plus de flexibilité
     {
         return amount.ToString("N0", CultureInfo.InvariantCulture).Replace(",", " ") + " FCFA";
     }
